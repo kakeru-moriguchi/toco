@@ -1,6 +1,5 @@
-import type { League, Match, Slot, Team } from "./types";
+import type { BracketTier, League, Match, Slot, Team, Tiebreaker } from "./types";
 import { computeStandings, type StandingRow } from "./standings";
-import type { Tiebreaker } from "./types";
 
 /**
  * 決勝トーナメントの組み合わせ生成ロジック（独立モジュール）
@@ -66,21 +65,27 @@ export function roundLabel(teamsInRound: number): string {
 }
 
 /**
- * 予選順位から進出チームを強い順（シード順）に並べる。
- * 1位グループ → 2位グループ …の順。ただし2位以降のグループは
- * リーグの並びをずらして、同じリーグ同士が早い段階で当たらないようにする。
+ * 予選順位から、ある「級」に出場するチームを強い順（シード順）に並べる。
+ *
+ * 例: fromRank=1, toRank=2（A級）なら 1位グループ → 2位グループ の順。
+ *     fromRank=3, toRank=3（B級）なら 各リーグ3位だけ。
+ *
+ * 2番目以降の順位グループはリーグの並びをずらして、
+ * 同じリーグ同士が早い段階で当たらないようにしている。
  */
 export function buildQualifiers(
   leagues: League[],
   standingsByLeague: Record<string, StandingRow[]>,
-  advancePerLeague: number
+  fromRank: number,
+  toRank: number
 ): Qualifier[] {
   const sortedLeagues = [...leagues].sort((a, b) => a.sort_order - b.sort_order);
   const L = sortedLeagues.length;
   const out: Qualifier[] = [];
+  if (L === 0) return out;
 
-  for (let rank = 1; rank <= advancePerLeague; rank++) {
-    const shift = ((rank - 1) * Math.ceil(L / 2)) % Math.max(L, 1);
+  for (let rank = fromRank; rank <= toRank; rank++) {
+    const shift = ((rank - fromRank) * Math.ceil(L / 2)) % L;
     for (let i = 0; i < L; i++) {
       const league = sortedLeagues[(i + shift) % L];
       const rows = standingsByLeague[league.id] ?? [];
@@ -253,15 +258,25 @@ export function planBracket(
   return list.sort((a, b) => a.round - b.round || a.bracketIndex - b.bracketIndex);
 }
 
-/** 予選結果からトーナメント表を作るための入口 */
-export function planBracketFromLeagues(params: {
+export type PlannedTier = {
+  tier: BracketTier;
+  qualifiers: Qualifier[];
+  planned: PlannedMatch[];
+  /** 出場チームが足りずに作られなかった場合の理由 */
+  skippedReason?: string;
+};
+
+/**
+ * 予選結果から、すべての級（A級 / B級 / C級 …）のトーナメント表をまとめて組み立てる。
+ * 出場が2チーム未満の級は作られず、理由が返る。
+ */
+export function planBracketsFromLeagues(params: {
   leagues: League[];
   teams: Team[];
   matches: Match[];
-  advancePerLeague: number;
-  thirdPlaceMatch: boolean;
+  tiers: BracketTier[];
   tiebreakers: Tiebreaker[];
-}): { planned: PlannedMatch[]; qualifiers: Qualifier[] } {
+}): PlannedTier[] {
   const standingsByLeague: Record<string, StandingRow[]> = {};
   for (const l of params.leagues) {
     standingsByLeague[l.id] = computeStandings(
@@ -270,15 +285,28 @@ export function planBracketFromLeagues(params: {
       params.tiebreakers
     );
   }
-  const qualifiers = buildQualifiers(
-    params.leagues,
-    standingsByLeague,
-    params.advancePerLeague
-  );
-  return {
-    planned: planBracket(qualifiers, { thirdPlaceMatch: params.thirdPlaceMatch }),
-    qualifiers,
-  };
+
+  return params.tiers.map((tier) => {
+    const qualifiers = buildQualifiers(
+      params.leagues,
+      standingsByLeague,
+      tier.from_rank,
+      tier.to_rank
+    );
+    if (qualifiers.length < 2) {
+      return {
+        tier,
+        qualifiers,
+        planned: [],
+        skippedReason: `${tier.name}は対象チームが${qualifiers.length}組しかないため作成をとばしました。`,
+      };
+    }
+    return {
+      tier,
+      qualifiers,
+      planned: planBracket(qualifiers, { thirdPlaceMatch: tier.third_place }),
+    };
+  });
 }
 
 /**

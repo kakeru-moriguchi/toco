@@ -5,7 +5,8 @@ import { AdminShell, Toast } from "@/components/AdminShell";
 import { useTournamentState } from "@/lib/useTournamentState";
 import { adminPatch } from "@/lib/adminApi";
 import { LoadingBlock } from "@/components/ui";
-import { TIEBREAKER_LABELS, type Tiebreaker } from "@/lib/types";
+import { nextTierKey, validateTiers } from "@/lib/tiers";
+import { TIEBREAKER_LABELS, type BracketTier, type Tiebreaker } from "@/lib/types";
 
 const ALL_TIEBREAKERS: Tiebreaker[] = [
   "wins",
@@ -21,6 +22,7 @@ export default function AdminTournamentPage() {
   const [form, setForm] = useState<Record<string, unknown> | null>(null);
   const [courts, setCourts] = useState("");
   const [tiebreakers, setTiebreakers] = useState<Tiebreaker[]>([]);
+  const [tiers, setTiers] = useState<BracketTier[]>([]);
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "error" } | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -34,17 +36,37 @@ export default function AdminTournamentPage() {
       note: t.note,
       league_count: t.league_count,
       teams_per_league: t.teams_per_league,
-      advance_per_league: t.advance_per_league,
       point_target: t.point_target,
-      third_place_match: t.third_place_match,
       start_time: t.start_time,
       minutes_per_match: t.minutes_per_match,
     });
     setCourts(t.courts.join(", "));
     setTiebreakers(t.tiebreakers);
+    setTiers(t.bracket_tiers);
   }, [state, form]);
 
   const set = (key: string, value: unknown) => setForm((f) => ({ ...(f ?? {}), [key]: value }));
+
+  const updateTier = (index: number, patch: Partial<BracketTier>) => {
+    setTiers((list) => list.map((t, i) => (i === index ? { ...t, ...patch } : t)));
+  };
+
+  const addTier = () => {
+    const maxRank = tiers.reduce((n, t) => Math.max(n, t.to_rank), 0);
+    const key = nextTierKey(tiers);
+    setTiers([
+      ...tiers,
+      { key, name: `${key}級`, from_rank: maxRank + 1, to_rank: maxRank + 1, third_place: false },
+    ]);
+  };
+
+  /** その級に何チーム出場するかの目安（リーグ数 × 対象順位の数） */
+  const estimateTeams = (from: number, to: number) => {
+    const leagues = state?.leagues.length ?? Number(form?.league_count ?? 0);
+    return Math.max(0, (to - from + 1) * leagues);
+  };
+
+  const tierError = validateTiers(tiers);
 
   const move = (index: number, dir: -1 | 1) => {
     const next = [...tiebreakers];
@@ -60,6 +82,11 @@ export default function AdminTournamentPage() {
 
   const save = async () => {
     if (!form) return;
+    if (tierError) {
+      setToast({ msg: tierError, tone: "error" });
+      setTimeout(() => setToast(null), 4000);
+      return;
+    }
     setSaving(true);
     try {
       await adminPatch("/api/admin/tournament", {
@@ -67,6 +94,7 @@ export default function AdminTournamentPage() {
         event_date: form.event_date || null,
         courts: courts.split(/[,、\s]+/).map((c) => c.trim()).filter(Boolean),
         tiebreakers,
+        bracket_tiers: tiers,
       });
       await refresh();
       setToast({ msg: "保存しました", tone: "ok" });
@@ -119,18 +147,88 @@ export default function AdminTournamentPage() {
                 <input id="tpl" type="number" min={2} max={20} className="field" value={Number(form.teams_per_league)} onChange={(e) => set("teams_per_league", Number(e.target.value))} />
               </div>
               <div>
-                <label className="label" htmlFor="apl">各リーグの決勝T進出数</label>
-                <input id="apl" type="number" min={1} max={8} className="field" value={Number(form.advance_per_league)} onChange={(e) => set("advance_per_league", Number(e.target.value))} />
+                <label className="label" htmlFor="pt">1試合の目標点（表示用）</label>
+                <input id="pt" type="number" min={1} max={99} className="field" value={Number(form.point_target)} onChange={(e) => set("point_target", Number(e.target.value))} />
               </div>
             </div>
-            <label className="flex items-center gap-2 text-sm font-bold text-court-800">
-              <input type="checkbox" className="h-5 w-5" checked={Boolean(form.third_place_match)} onChange={(e) => set("third_place_match", e.target.checked)} />
-              3位決定戦を行う
-            </label>
-            <div>
-              <label className="label" htmlFor="pt">1試合の目標点（表示用）</label>
-              <input id="pt" type="number" min={1} max={99} className="field sm:w-40" value={Number(form.point_target)} onChange={(e) => set("point_target", Number(e.target.value))} />
-            </div>
+          </section>
+
+          <section className="card space-y-3 p-4">
+            <h2 className="text-sm font-black text-court-800">順位別トーナメント（級）</h2>
+            <p className="text-xs leading-relaxed text-ink-500">
+              予選の順位ごとに、別々のトーナメントを作ります。
+              例：各リーグ1〜2位＝A級／3位＝B級／4位＝C級。
+              同じ順位を複数の級に入れることはできません。
+            </p>
+
+            <ul className="space-y-2">
+              {tiers.map((tier, i) => (
+                <li key={tier.key} className="space-y-2 rounded-xl bg-court-50 p-3">
+                  <div className="flex items-center gap-2">
+                    <span className="chip bg-court-800 text-white">{tier.key}</span>
+                    <input
+                      className="field h-11 flex-1"
+                      value={tier.name}
+                      placeholder="級の名前"
+                      onChange={(e) => updateTier(i, { name: e.target.value })}
+                    />
+                    <button
+                      className="btn-danger btn-sm"
+                      onClick={() => setTiers(tiers.filter((_, j) => j !== i))}
+                      disabled={tiers.length <= 1}
+                    >
+                      削除
+                    </button>
+                  </div>
+                  <div className="flex flex-wrap items-end gap-2">
+                    <label className="text-xs font-bold text-court-800">
+                      対象：各リーグ
+                      <input
+                        type="number"
+                        min={1}
+                        max={30}
+                        className="field ml-1 h-11 w-20 text-center tabular-nums"
+                        value={tier.from_rank}
+                        onChange={(e) => updateTier(i, { from_rank: Number(e.target.value) })}
+                      />
+                    </label>
+                    <span className="pb-3 text-sm font-bold text-ink-700">位 〜</span>
+                    <label className="text-xs font-bold text-court-800">
+                      <input
+                        type="number"
+                        min={1}
+                        max={30}
+                        className="field h-11 w-20 text-center tabular-nums"
+                        value={tier.to_rank}
+                        onChange={(e) => updateTier(i, { to_rank: Number(e.target.value) })}
+                      />
+                    </label>
+                    <span className="pb-3 text-sm font-bold text-ink-700">位</span>
+                    <label className="flex items-center gap-2 pb-3 text-sm font-bold text-court-800">
+                      <input
+                        type="checkbox"
+                        className="h-5 w-5"
+                        checked={tier.third_place}
+                        onChange={(e) => updateTier(i, { third_place: e.target.checked })}
+                      />
+                      3位決定戦
+                    </label>
+                  </div>
+                  <p className="text-xs text-ink-500">
+                    {state ? `${state.leagues.length}リーグなら ` : ""}
+                    出場 {estimateTeams(tier.from_rank, tier.to_rank)} チーム
+                  </p>
+                </li>
+              ))}
+            </ul>
+
+            <button className="btn-ghost btn-sm" onClick={addTier}>
+              ＋ 級を追加
+            </button>
+
+            {tierError && (
+              <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{tierError}</p>
+            )}
           </section>
 
           <section className="card space-y-3 p-4">
@@ -180,7 +278,7 @@ export default function AdminTournamentPage() {
           </section>
 
           <div className="sticky bottom-4">
-            <button className="btn-primary w-full shadow-lg" onClick={save} disabled={saving}>
+            <button className="btn-primary w-full shadow-lg" onClick={save} disabled={saving || Boolean(tierError)}>
               {saving ? "保存中…" : "設定を保存する"}
             </button>
           </div>

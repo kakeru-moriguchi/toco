@@ -18,9 +18,7 @@ create table if not exists tournaments (
   -- 大会設計（16チーム以外でも使えるように管理画面から変更可能）
   league_count       int         not null default 4,
   teams_per_league   int         not null default 4,
-  advance_per_league int         not null default 2,
   point_target       int         not null default 11,   -- 何点先取か（入力バリデーションの目安）
-  third_place_match  boolean     not null default true,
   -- 進行表の自動割り当て設定
   start_time         text        not null default '09:00',
   minutes_per_match  int         not null default 20,
@@ -29,6 +27,12 @@ create table if not exists tournaments (
   -- ここの並びを変えるだけで同率時のルールを差し替えられる。
   -- 使える値: wins / diff / points_for / points_against / head_to_head / win_rate
   tiebreakers        text[]      not null default array['wins','diff','points_for'],
+  -- 順位別トーナメント（A級/B級/C級…）の定義。
+  -- 各リーグの何位から何位までを、どの級に入れるかを持つ。
+  bracket_tiers      jsonb       not null default
+    '[{"key":"A","name":"A級","from_rank":1,"to_rank":2,"third_place":true},
+      {"key":"B","name":"B級","from_rank":3,"to_rank":3,"third_place":false},
+      {"key":"C","name":"C級","from_rank":4,"to_rank":4,"third_place":false}]'::jsonb,
   phase              text        not null default 'setup'
                        check (phase in ('setup','league','bracket','finished')),
   created_at         timestamptz not null default now(),
@@ -74,6 +78,7 @@ create table if not exists matches (
   league_id     uuid references leagues(id) on delete cascade,
 
   -- トーナメント用
+  tier_key       text,               -- どの級の試合か（'A' / 'B' / 'C' …）
   round          int,                -- 1 = 初戦, 2, 3 ... 大きいほど決勝に近い
   bracket_index  int,                -- ラウンド内の上からの位置（0始まり）
   is_third_place boolean not null default false,
@@ -108,7 +113,7 @@ create table if not exists matches (
 );
 create index if not exists matches_tournament_idx on matches(tournament_id, match_no);
 create index if not exists matches_league_idx on matches(league_id);
-create index if not exists matches_stage_idx on matches(tournament_id, stage, round, bracket_index);
+create index if not exists matches_stage_idx on matches(tournament_id, stage, tier_key, round, bracket_index);
 
 -- ------------------------------------------------------------
 -- 結果の履歴（監査ログ）

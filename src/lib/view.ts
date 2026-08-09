@@ -25,18 +25,38 @@ export function isReady(match: Match): boolean {
   return Boolean(match.team_a_id && match.team_b_id);
 }
 
-export function maxBracketRound(matches: Match[]): number {
-  const rounds = matches.filter((m) => m.stage === "bracket").map((m) => m.round ?? 0);
+/**
+ * その級の最終ラウンド番号。
+ * 級ごとにチーム数が違う（A級=8チーム、B級=4チーム など）ため、
+ * 「決勝」「準決勝」の判定は必ず級を指定して行う。
+ */
+export function maxBracketRound(matches: Match[], tierKey?: string | null): number {
+  const rounds = matches
+    .filter((m) => m.stage === "bracket" && (tierKey === undefined || m.tier_key === tierKey))
+    .map((m) => m.round ?? 0);
   return rounds.length > 0 ? Math.max(...rounds) : 0;
 }
 
-/** 「Aリーグ」「準決勝」など、その試合の所属を表す短い名前 */
+/** その試合が属する級の表示名（"A級" など）。リーグ戦なら空文字 */
+export function tierName(match: Match, state: TournamentState): string {
+  if (match.stage !== "bracket") return "";
+  const tier = state.tournament.bracket_tiers.find((t) => t.key === match.tier_key);
+  return tier?.name ?? "";
+}
+
+/** 「Aリーグ」「A級 準決勝」など、その試合の所属を表す短い名前 */
 export function matchGroupName(match: Match, state: TournamentState): string {
   if (match.stage === "league") {
     const league = state.leagues.find((l) => l.id === match.league_id);
     return league ? `${league.name}リーグ` : "リーグ戦";
   }
-  return bracketRoundName(match.round ?? 1, maxBracketRound(state.matches), match.is_third_place);
+  const round = bracketRoundName(
+    match.round ?? 1,
+    maxBracketRound(state.matches, match.tier_key),
+    match.is_third_place
+  );
+  const tier = tierName(match, state);
+  return tier ? `${tier} ${round}` : round;
 }
 
 export function leagueName(league: League | undefined): string {

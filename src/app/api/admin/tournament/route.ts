@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { ensureLeagues, getTournament } from "@/lib/data";
 import { errorMessage, fail, ok, requireAdmin } from "@/lib/api";
+import { normalizeTiers, validateTiers } from "@/lib/tiers";
 import type { Tiebreaker } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +33,6 @@ export async function PATCH(req: NextRequest) {
     const intFields: [string, number, number][] = [
       ["league_count", 1, 26],
       ["teams_per_league", 2, 20],
-      ["advance_per_league", 1, 8],
       ["point_target", 1, 99],
       ["minutes_per_match", 5, 180],
     ];
@@ -46,7 +46,6 @@ export async function PATCH(req: NextRequest) {
       }
     }
 
-    if (typeof body.third_place_match === "boolean") patch.third_place_match = body.third_place_match;
     if (typeof body.start_time === "string" && /^\d{1,2}:\d{2}$/.test(body.start_time)) {
       patch.start_time = body.start_time;
     }
@@ -61,6 +60,12 @@ export async function PATCH(req: NextRequest) {
       );
       if (list.length === 0) return fail("順位の決定条件を1つ以上選んでください。");
       patch.tiebreakers = list;
+    }
+    if (body.bracket_tiers !== undefined) {
+      const tiers = normalizeTiers(body.bracket_tiers);
+      const problem = validateTiers(tiers);
+      if (problem) return fail(problem);
+      patch.bracket_tiers = tiers;
     }
     if (typeof body.phase === "string" && ["setup", "league", "bracket", "finished"].includes(body.phase)) {
       patch.phase = body.phase;

@@ -6,6 +6,7 @@ import { computeAllStandings } from "@/lib/standings";
 import { TIEBREAKER_LABELS } from "@/lib/types";
 import { scoreText, sideName } from "@/lib/view";
 import { StandingsTable } from "@/components/StandingsTable";
+import { tierRangeLabel } from "@/lib/tiers";
 import { EmptyBlock, ErrorBlock, LiveDot, LoadingBlock, PageShell } from "@/components/ui";
 
 export default function StandingsPage() {
@@ -44,7 +45,7 @@ export default function StandingsPage() {
                   {done} / {matches.length} 試合終了
                 </span>
               </header>
-              <StandingsTable rows={rows} advanceCount={state.tournament.advance_per_league} />
+              <StandingsTable rows={rows} tiers={state.tournament.bracket_tiers} />
               <details className="border-t border-court-100">
                 <summary className="cursor-pointer px-4 py-3 text-sm font-bold text-court-800">
                   {league.name}リーグの試合結果を見る
@@ -86,7 +87,13 @@ export default function StandingsPage() {
             </span>
           ))}
           <br />
-          背景が色付きの順位が決勝トーナメント進出（各リーグ上位{state.tournament.advance_per_league}チーム）です。
+          <span className="font-bold text-court-800">決勝トーナメントの進出先：</span>
+          {state.tournament.bracket_tiers.map((t, i) => (
+            <span key={t.key}>
+              {i > 0 && " / "}
+              各リーグ{tierRangeLabel(t)} → {t.name}
+            </span>
+          ))}
         </p>
       )}
     </PageShell>

@@ -35,7 +35,6 @@ begin
          venue = coalesce(nullif(venue, ''), '市民体育館'),
          league_count = 4,
          teams_per_league = 4,
-         advance_per_league = 2,
          phase = 'setup'
    where id = t_id;
 

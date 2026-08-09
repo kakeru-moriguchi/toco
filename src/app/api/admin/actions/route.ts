@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
         );
       }
       const result = await generateBracket(tournament.id, { startTime: body.startTime });
-      return ok({ ...(await getState()), qualifiers: result.qualifiers });
+      return ok({ ...(await getState()), tiers: result.tiers });
     } else if (action === "reset_bracket") {
       await db.from("matches").delete().eq("tournament_id", tournament.id).eq("stage", "bracket");
       await db.from("tournaments").update({ phase: "league" }).eq("id", tournament.id);

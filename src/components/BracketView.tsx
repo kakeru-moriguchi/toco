@@ -24,7 +24,7 @@ function MatchCard({
   showReport: boolean;
 }) {
   const ready = Boolean(match.team_a_id && match.team_b_id);
-  const rounds = maxBracketRound(state.matches);
+  const rounds = maxBracketRound(state.matches, match.tier_key);
   return (
     <div
       className={`w-full rounded-xl bg-white p-2 shadow-card ring-1 ${
@@ -74,13 +74,18 @@ function MatchCard({
 
 export function BracketView({
   state,
+  tierKey,
   showReport = true,
 }: {
   state: TournamentState;
+  /** 表示する級。省略すると全トーナメント試合をまとめて描くので、通常は必ず指定する */
+  tierKey?: string;
   showReport?: boolean;
 }) {
   const { rounds, thirdPlace, height } = useMemo(() => {
-    const bracket = state.matches.filter((m) => m.stage === "bracket");
+    const bracket = state.matches.filter(
+      (m) => m.stage === "bracket" && (tierKey === undefined || m.tier_key === tierKey)
+    );
     const third = bracket.find((m) => m.is_third_place) ?? null;
     const main = bracket.filter((m) => !m.is_third_place);
     const byRound = new Map<number, Match[]>();
@@ -96,7 +101,7 @@ export function BracketView({
       }));
     const first = list[0]?.matches.length ?? 0;
     return { rounds: list, thirdPlace: third, height: Math.max(first, 1) * ROW_HEIGHT };
-  }, [state.matches]);
+  }, [state.matches, tierKey]);
 
   if (rounds.length === 0) return null;
   const lastRound = rounds[rounds.length - 1].round;

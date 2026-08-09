@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "./supabase";
 import { assignSchedule, roundRobin } from "./schedule";
-import { planBracketFromLeagues, resolveBracketProgress } from "./bracket";
+import { planBracketsFromLeagues, resolveBracketProgress } from "./bracket";
+import { normalizeTiers } from "./tiers";
 import type { League, Match, Team, Tournament, TournamentState } from "./types";
 
 /**
@@ -8,6 +9,14 @@ import type { League, Match, Team, Tournament, TournamentState } from "./types";
  * 参加者からの書き込みは必ずここを通るので、
  * 「勝者判定」「次のラウンドへの繰り上げ」「進行状況の更新」を一箇所で担保できる。
  */
+
+/** DBの行を、画面がそのまま使える形に整える */
+function toTournament(row: Record<string, unknown>): Tournament {
+  return {
+    ...(row as unknown as Tournament),
+    bracket_tiers: normalizeTiers(row.bracket_tiers),
+  };
+}
 
 export async function getTournament(): Promise<Tournament> {
   const db = supabaseAdmin();
@@ -24,9 +33,9 @@ export async function getTournament(): Promise<Tournament> {
       .select("*")
       .single();
     if (insertError) throw new Error(insertError.message);
-    return created as Tournament;
+    return toTournament(created);
   }
-  return data[0] as Tournament;
+  return toTournament(data[0]);
 }
 
 export async function getState(): Promise<TournamentState> {
@@ -175,12 +184,20 @@ export async function autoAssignSchedule(
   const matches = (data ?? []) as Match[];
   if (matches.length === 0) return;
 
-  // 3位決定戦は決勝の前に置く
+  // トーナメントは「各級の同じラウンドをまとめて」進める。
+  // 例: A級の準々決勝とB級・C級の準決勝が同じ時間帯に並ぶ。
+  // 3位決定戦は同じラウンドの中で決勝より前に置く。
+  const tierOrder = new Map(
+    normalizeTiers((await getTournament()).bracket_tiers).map((t, i) => [t.key, i])
+  );
   const ordered = [...matches].sort((a, b) => {
     if (a.stage === "bracket" && b.stage === "bracket") {
       const ra = a.round ?? 0;
       const rb = b.round ?? 0;
       if (ra !== rb) return ra - rb;
+      const ta = tierOrder.get(a.tier_key ?? "") ?? 99;
+      const tb = tierOrder.get(b.tier_key ?? "") ?? 99;
+      if (ta !== tb) return ta - tb;
       if (a.is_third_place !== b.is_third_place) return a.is_third_place ? -1 : 1;
       return (a.bracket_index ?? 0) - (b.bracket_index ?? 0);
     }
@@ -216,66 +233,81 @@ export async function autoAssignSchedule(
   }
 }
 
-/** 決勝トーナメントを予選順位から生成する */
+/**
+ * 順位別トーナメント（A級 / B級 / C級 …）を予選順位からまとめて生成する。
+ * 級ごとに独立したトーナメント表を作り、matches.tier_key で区別する。
+ */
 export async function generateBracket(tournamentId: string, options?: { startTime?: string }) {
   const db = supabaseAdmin();
   const state = await getState();
   const { tournament, leagues, teams, matches } = state;
 
-  const { planned, qualifiers } = planBracketFromLeagues({
+  const tiers = normalizeTiers(tournament.bracket_tiers);
+  const plans = planBracketsFromLeagues({
     leagues,
     teams,
     matches,
-    advancePerLeague: tournament.advance_per_league,
-    thirdPlaceMatch: tournament.third_place_match,
+    tiers,
     tiebreakers: tournament.tiebreakers,
   });
 
-  if (planned.length === 0) {
-    throw new Error("進出チームが足りません。リーグ分けと予選結果を確認してください。");
+  const buildable = plans.filter((p) => p.planned.length > 0);
+  if (buildable.length === 0) {
+    throw new Error(
+      "どの級も出場チームが足りません。リーグ分けと、級の対象順位の設定を確認してください。"
+    );
   }
 
   await db.from("matches").delete().eq("tournament_id", tournamentId).eq("stage", "bracket");
 
-  // 先に空の試合を作ってIDを得てから、次戦へのリンクを張る
-  const rows = planned.map((p) => ({
-    tournament_id: tournamentId,
-    stage: "bracket" as const,
-    round: p.round,
-    bracket_index: p.bracketIndex,
-    is_third_place: p.isThirdPlace,
-    team_a_id: p.teamAId,
-    team_b_id: p.teamBId,
-    team_a_label: p.teamALabel,
-    team_b_label: p.teamBLabel,
-    status: "pending" as const,
-    match_no: 0,
-  }));
-  const { data: inserted, error } = await db.from("matches").insert(rows).select("*");
-  if (error) throw new Error(error.message);
+  let total = 0;
+  for (const plan of buildable) {
+    // 先に空の試合を作ってIDを得てから、次戦へのリンクを張る
+    const rows = plan.planned.map((p) => ({
+      tournament_id: tournamentId,
+      stage: "bracket" as const,
+      tier_key: plan.tier.key,
+      round: p.round,
+      bracket_index: p.bracketIndex,
+      is_third_place: p.isThirdPlace,
+      team_a_id: p.teamAId,
+      team_b_id: p.teamBId,
+      team_a_label: p.teamALabel,
+      team_b_label: p.teamBLabel,
+      status: "pending" as const,
+      match_no: 0,
+    }));
+    const { data: inserted, error } = await db.from("matches").insert(rows).select("*");
+    if (error) throw new Error(error.message);
 
-  const created = (inserted ?? []) as Match[];
-  const idByKey = new Map<string, string>();
-  planned.forEach((p) => {
-    const found = created.find(
-      (m) => m.round === p.round && m.bracket_index === p.bracketIndex && m.is_third_place === p.isThirdPlace
-    );
-    if (found) idByKey.set(p.key, found.id);
-  });
+    const created = (inserted ?? []) as Match[];
+    total += created.length;
 
-  for (const p of planned) {
-    const id = idByKey.get(p.key);
-    if (!id) continue;
-    const patch: Record<string, unknown> = {};
-    if (p.nextKey) {
-      patch.next_match_id = idByKey.get(p.nextKey) ?? null;
-      patch.next_slot = p.nextSlot;
+    const idByKey = new Map<string, string>();
+    plan.planned.forEach((p) => {
+      const found = created.find(
+        (m) =>
+          m.round === p.round &&
+          m.bracket_index === p.bracketIndex &&
+          m.is_third_place === p.isThirdPlace
+      );
+      if (found) idByKey.set(p.key, found.id);
+    });
+
+    for (const p of plan.planned) {
+      const id = idByKey.get(p.key);
+      if (!id) continue;
+      const patch: Record<string, unknown> = {};
+      if (p.nextKey) {
+        patch.next_match_id = idByKey.get(p.nextKey) ?? null;
+        patch.next_slot = p.nextSlot;
+      }
+      if (p.loserNextKey) {
+        patch.loser_next_match_id = idByKey.get(p.loserNextKey) ?? null;
+        patch.loser_next_slot = p.loserNextSlot;
+      }
+      if (Object.keys(patch).length > 0) await db.from("matches").update(patch).eq("id", id);
     }
-    if (p.loserNextKey) {
-      patch.loser_next_match_id = idByKey.get(p.loserNextKey) ?? null;
-      patch.loser_next_slot = p.loserNextSlot;
-    }
-    if (Object.keys(patch).length > 0) await db.from("matches").update(patch).eq("id", id);
   }
 
   await autoAssignSchedule(tournamentId, "bracket", {
@@ -284,9 +316,20 @@ export async function generateBracket(tournamentId: string, options?: { startTim
     courts: tournament.courts,
   });
 
-  await db.from("tournaments").update({ phase: "bracket", updated_at: new Date().toISOString() }).eq("id", tournamentId);
+  await db
+    .from("tournaments")
+    .update({ phase: "bracket", updated_at: new Date().toISOString() })
+    .eq("id", tournamentId);
 
-  return { qualifiers, count: created.length };
+  return {
+    tiers: plans.map((p) => ({
+      name: p.tier.name,
+      teams: p.qualifiers.length,
+      matches: p.planned.length,
+      skippedReason: p.skippedReason,
+    })),
+    count: total,
+  };
 }
 
 /**
