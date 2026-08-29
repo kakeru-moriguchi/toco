@@ -80,7 +80,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen pb-16">
       {/* 大会名・開催日・会場 */}
-      <header className="bg-court-800 pb-10 pt-8 text-white">
+      <header className="bg-court-800 pb-7 pt-8 text-white">
         <div className="mx-auto max-w-3xl px-5">
           <p className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-bold tracking-wide">
             <span className="inline-block h-2 w-2 rounded-full bg-ball-400" />
@@ -106,7 +106,8 @@ export default function HomePage() {
         </div>
       </header>
 
-      <main className="mx-auto -mt-6 max-w-3xl space-y-4 px-4">
+      {/* ヘッダーに重ねず、薄緑の面から始める */}
+      <main className="mx-auto max-w-3xl space-y-4 px-4 pt-5">
         {/* 大きなメニューボタン */}
         <nav className="grid gap-3">
           {MENU.map((item) => (
