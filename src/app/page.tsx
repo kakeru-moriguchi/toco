@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { useTournamentState } from "@/lib/useTournamentState";
-import { formatDate, matchGroupName, sideName, upcomingMatches } from "@/lib/view";
-import { StatusBadge } from "@/components/ui";
+import { formatDate } from "@/lib/view";
 
 type MenuItem = {
   href: string;
@@ -17,7 +16,7 @@ const MENU: MenuItem[] = [
   {
     href: "/schedule",
     title: "進行表を見る",
-    description: "試合の順番・時間・コート",
+    description: "コートごとの試合の順番",
     icon: "clock",
   },
   {
@@ -77,7 +76,6 @@ function Icon({ name }: { name: string }) {
 export default function HomePage() {
   const { state, loading } = useTournamentState();
   const tournament = state?.tournament;
-  const next = state ? upcomingMatches(state.matches, 2) : [];
 
   return (
     <div className="min-h-screen pb-16">
@@ -109,38 +107,6 @@ export default function HomePage() {
       </header>
 
       <main className="mx-auto -mt-6 max-w-3xl space-y-4 px-4">
-        {/* 次の試合 */}
-        {next.length > 0 && state && (
-          <section className="card p-4">
-            <h2 className="mb-3 flex items-center gap-2 text-sm font-black text-court-800">
-              <span className="inline-block h-4 w-1 rounded-full bg-ball-500" />
-              次の試合
-            </h2>
-            <ul className="space-y-2">
-              {next.map((m) => (
-                <li key={m.id} className="rounded-xl bg-court-50 p-3">
-                  <div className="mb-1 flex items-center gap-2 text-xs font-bold text-court-700">
-                    {m.court && (
-                      <span className="rounded bg-court-800 px-1.5 py-0.5 text-white">
-                        コート{m.court}
-                      </span>
-                    )}
-                    <span className="text-ink-500">{matchGroupName(m, state)}</span>
-                    <span className="ml-auto">
-                      <StatusBadge status={m.status} />
-                    </span>
-                  </div>
-                  <p className="text-[15px] font-bold leading-snug">
-                    {sideName(m, "a", state.teams)}
-                    <span className="mx-2 text-ink-500">vs</span>
-                    {sideName(m, "b", state.teams)}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-
         {/* 大きなメニューボタン */}
         <nav className="grid gap-3">
           {MENU.map((item) => (
