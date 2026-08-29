@@ -71,12 +71,21 @@ export async function POST(req: NextRequest) {
         .eq("tournament_id", tournament.id);
       if (error) throw new Error(error.message);
     } else if (action === "move") {
-      const direction = body.direction === "up" ? -1 : 1;
       const state = await getState();
       const ordered = [...state.matches].sort((a, b) => a.match_no - b.match_no);
       const index = ordered.findIndex((m) => m.id === id);
-      const target = index + direction;
-      if (index < 0 || target < 0 || target >= ordered.length) return fail("これ以上動かせません。");
+      if (index < 0) return fail("対象の試合が見つかりませんでした。");
+
+      // targetId が来たらその試合と入れ替える（コートで絞り込んでいるときに使う）。
+      // 無ければ進行順で1つ隣と入れ替える。
+      let target: number;
+      if (body.targetId) {
+        target = ordered.findIndex((m) => m.id === String(body.targetId));
+        if (target < 0) return fail("入れ替え先の試合が見つかりませんでした。");
+      } else {
+        target = index + (body.direction === "up" ? -1 : 1);
+      }
+      if (target < 0 || target >= ordered.length) return fail("これ以上動かせません。");
       const a = ordered[index];
       const b = ordered[target];
       // 試合番号・時間・コートをまとめて入れ替える

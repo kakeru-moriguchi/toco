@@ -67,11 +67,11 @@ export default function ReportListPage() {
               <Link href={`/report/${m.id}`} className="card flex items-center gap-3 p-3 active:scale-[.99]">
                 <div className="min-w-0 flex-1">
                   <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[11px] font-bold text-court-700">
-                    <span className="rounded bg-court-800 px-1.5 py-0.5 text-white tabular-nums">
-                      第{m.match_no}試合
-                    </span>
-                    {m.scheduled_at && <span className="tabular-nums">{m.scheduled_at}</span>}
-                    {m.court && <span>コート{m.court}</span>}
+                    {m.court && (
+                      <span className="rounded bg-court-800 px-1.5 py-0.5 text-white">
+                        コート{m.court}
+                      </span>
+                    )}
                     <span className="text-ink-500">{matchGroupName(m, state)}</span>
                     <StatusBadge status={m.status} />
                   </div>

@@ -215,7 +215,11 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
   // 入力画面
   const invalidSame = scoreA === scoreB;
   return (
-    <PageShell title="結果入力" subtitle={`第${match.match_no}試合 / ${matchGroupName(match, state)}`} backHref="/report">
+    <PageShell
+      title="結果入力"
+      subtitle={`${match.court ? `コート${match.court} / ` : ""}${matchGroupName(match, state)}`}
+      backHref="/report"
+    >
       {match.status === "done" && (
         <div className="card mb-3 border-l-4 border-l-ball-500 p-3 text-sm font-bold text-court-800">
           この試合はすでに登録済みです（{match.score_a} - {match.score_b}）。

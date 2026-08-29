@@ -120,8 +120,11 @@ export default function HomePage() {
               {next.map((m) => (
                 <li key={m.id} className="rounded-xl bg-court-50 p-3">
                   <div className="mb-1 flex items-center gap-2 text-xs font-bold text-court-700">
-                    <span className="tabular-nums">{m.scheduled_at || "--:--"}</span>
-                    {m.court && <span className="rounded bg-white px-1.5 py-0.5">コート{m.court}</span>}
+                    {m.court && (
+                      <span className="rounded bg-court-800 px-1.5 py-0.5 text-white">
+                        コート{m.court}
+                      </span>
+                    )}
                     <span className="text-ink-500">{matchGroupName(m, state)}</span>
                     <span className="ml-auto">
                       <StatusBadge status={m.status} />

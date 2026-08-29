@@ -14,6 +14,7 @@ export default function AdminSchedulePage() {
   const [stage, setStage] = useState<"league" | "bracket">("league");
   const [startTime, setStartTime] = useState("");
   const [drafts, setDrafts] = useState<Record<string, { court?: string; scheduled_at?: string; match_no?: string }>>({});
+  const [courtFilter, setCourtFilter] = useState<string>("all");
 
   const notify = (msg: string, tone: "ok" | "error" = "ok") => {
     setToast({ msg, tone });
@@ -33,7 +34,23 @@ export default function AdminSchedulePage() {
     }
   };
 
-  const matches = useMemo(() => (state ? sortMatches(state.matches) : []), [state]);
+  const allMatches = useMemo(() => (state ? sortMatches(state.matches) : []), [state]);
+
+  /** コート名の一覧（進行表がコート別になったので、ここでも絞り込めるようにする） */
+  const courtList = useMemo(() => {
+    const set = new Set(allMatches.map((m) => m.court.trim()).filter(Boolean));
+    return [...set].sort((a, b) => {
+      const na = Number(a);
+      const nb = Number(b);
+      if (Number.isFinite(na) && Number.isFinite(nb)) return na - nb;
+      return a.localeCompare(b, "ja");
+    });
+  }, [allMatches]);
+
+  const matches = useMemo(
+    () => (courtFilter === "all" ? allMatches : allMatches.filter((m) => m.court.trim() === courtFilter)),
+    [allMatches, courtFilter]
+  );
 
   return (
     <AdminShell
@@ -76,9 +93,41 @@ export default function AdminSchedulePage() {
               </button>
             </div>
             <p className="text-xs text-ink-500">
-              同じ時間帯に同じチームが重複しないように割り当てます。手直しは下の一覧から行えます。
+              同じチームが重ならないように、コートへ順番に割り当てます。手直しは下の一覧から行えます。
+            </p>
+            <p className="rounded-xl bg-court-50 px-3 py-2 text-xs text-ink-700">
+              参加者の進行表は<strong>コート別の順番</strong>で表示されます（予定時刻は表示されません）。
+              下の「時刻」は主催者の手元用です。空欄でも問題ありません。
             </p>
           </section>
+
+          {courtList.length > 0 && (
+            <div className="scroll-x -mx-1 flex gap-2 px-1">
+              <button
+                onClick={() => setCourtFilter("all")}
+                className={`btn btn-sm shrink-0 ${
+                  courtFilter === "all"
+                    ? "bg-court-700 text-white"
+                    : "bg-white text-court-800 ring-1 ring-court-200"
+                }`}
+              >
+                全コート
+              </button>
+              {courtList.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setCourtFilter(c)}
+                  className={`btn btn-sm shrink-0 ${
+                    courtFilter === c
+                      ? "bg-court-700 text-white"
+                      : "bg-white text-court-800 ring-1 ring-court-200"
+                  }`}
+                >
+                  コート{c}
+                </button>
+              ))}
+            </div>
+          )}
 
           <ul className="space-y-2">
             {matches.map((m, i) => {
@@ -148,17 +197,30 @@ export default function AdminSchedulePage() {
                     >
                       保存
                     </button>
+                    {/* コートで絞り込んでいるときは、そのコート内の隣と入れ替える */}
                     <button
                       className="btn-ghost btn-sm"
                       disabled={busy || i === 0}
-                      onClick={() => call("/api/admin/matches", { action: "move", id: m.id, direction: "up" }, "順番を変更しました")}
+                      onClick={() =>
+                        call(
+                          "/api/admin/matches",
+                          { action: "move", id: m.id, targetId: matches[i - 1]?.id },
+                          "順番を変更しました"
+                        )
+                      }
                     >
                       ↑ 前へ
                     </button>
                     <button
                       className="btn-ghost btn-sm"
                       disabled={busy || i === matches.length - 1}
-                      onClick={() => call("/api/admin/matches", { action: "move", id: m.id, direction: "down" }, "順番を変更しました")}
+                      onClick={() =>
+                        call(
+                          "/api/admin/matches",
+                          { action: "move", id: m.id, targetId: matches[i + 1]?.id },
+                          "順番を変更しました"
+                        )
+                      }
                     >
                       ↓ 後へ
                     </button>

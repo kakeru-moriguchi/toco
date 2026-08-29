@@ -76,8 +76,8 @@ export default function AdminHomePage() {
             <ul className="space-y-2">
               {upcomingMatches(state.matches, 4).map((m) => (
                 <li key={m.id} className="flex items-center gap-2 rounded-xl bg-court-50 p-3 text-sm">
-                  <span className="w-12 shrink-0 text-xs font-bold tabular-nums text-court-700">
-                    {m.scheduled_at || "--:--"}
+                  <span className="w-16 shrink-0 text-xs font-bold text-court-700">
+                    {m.court ? `コート${m.court}` : "コート未設定"}
                   </span>
                   <span className="min-w-0 flex-1 truncate font-bold">
                     {sideName(m, "a", state.teams)} vs {sideName(m, "b", state.teams)}

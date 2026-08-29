@@ -35,8 +35,7 @@ function MatchCard({
         <span className="rounded bg-court-100 px-1 py-0.5 text-court-800">
           {bracketRoundName(match.round ?? 1, rounds, match.is_third_place)}
         </span>
-        {match.scheduled_at && <span className="tabular-nums">{match.scheduled_at}</span>}
-        {match.court && <span>C{match.court}</span>}
+        {match.court && <span>コート{match.court}</span>}
       </div>
       {(["a", "b"] as const).map((slot) => {
         const teamId = slot === "a" ? match.team_a_id : match.team_b_id;
