@@ -37,7 +37,8 @@ export function PageShell({
 }) {
   return (
     <div className="min-h-screen pb-24">
-      <header className="sticky top-0 z-20 bg-court-800 text-white shadow-lg">
+      {/* z-30: 表の固定列(z-10)より必ず前。下スクロール時に表がヘッダーに重ならないようにする */}
+      <header className="sticky top-0 z-30 bg-court-800 text-white shadow-lg">
         <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3">
           <Link
             href={backHref}

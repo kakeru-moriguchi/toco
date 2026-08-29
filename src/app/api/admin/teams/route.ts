@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { ensureLeagues, getState, getTournament } from "@/lib/data";
+import { defaultLeagueName, ensureLeagues, getState, getTournament } from "@/lib/data";
 import { errorMessage, fail, ok, requireAdmin } from "@/lib/api";
 import type { Team } from "@/lib/types";
 
@@ -115,6 +115,23 @@ export async function POST(req: NextRequest) {
             .update({ league_id: leagues[li].id, sort_order: li * 1000 + ti })
             .eq("id", buckets[li][ti].id);
         }
+      }
+    } else if (action === "rename_league") {
+      const id = String(body.id ?? "");
+      const name = String(body.name ?? "").trim();
+      if (!id) return fail("対象のリーグが指定されていません。");
+      if (!name) return fail("リーグ名を入力してください。");
+      const { error } = await db
+        .from("leagues")
+        .update({ name: name.slice(0, 20) })
+        .eq("id", id)
+        .eq("tournament_id", tournament.id);
+      if (error) throw new Error(error.message);
+    } else if (action === "renumber_leagues") {
+      // ①②③… の形式に一括で付け直す（キーボードから入力しにくいため）
+      const leagues = await ensureLeagues(tournament.id, tournament.league_count);
+      for (let i = 0; i < leagues.length; i++) {
+        await db.from("leagues").update({ name: defaultLeagueName(i) }).eq("id", leagues[i].id);
       }
     } else {
       return fail("不明な操作です。");

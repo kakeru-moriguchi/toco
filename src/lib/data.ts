@@ -78,7 +78,15 @@ export async function logMatchEvent(params: {
   });
 }
 
-/** リーグを必要数だけ用意する（A, B, C ...） */
+/**
+ * リーグの既定の名前（①②③…）。
+ * 20を超えたら普通の数字にする。管理画面から自由に変更もできる。
+ */
+export function defaultLeagueName(index: number): string {
+  return index < 20 ? String.fromCharCode(0x2460 + index) : String(index + 1);
+}
+
+/** リーグを必要数だけ用意する（①, ②, ③ ...） */
 export async function ensureLeagues(tournamentId: string, count: number): Promise<League[]> {
   const db = supabaseAdmin();
   const { data } = await db
@@ -87,12 +95,11 @@ export async function ensureLeagues(tournamentId: string, count: number): Promis
     .eq("tournament_id", tournamentId)
     .order("sort_order");
   const current = (data ?? []) as League[];
-  const names = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
 
   if (current.length < count) {
     const rows = [];
     for (let i = current.length; i < count; i++) {
-      rows.push({ tournament_id: tournamentId, name: names[i] ?? `L${i + 1}`, sort_order: i });
+      rows.push({ tournament_id: tournamentId, name: defaultLeagueName(i), sort_order: i });
     }
     if (rows.length > 0) await db.from("leagues").insert(rows);
   } else if (current.length > count) {

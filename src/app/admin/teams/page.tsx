@@ -15,6 +15,7 @@ export default function AdminTeamsPage() {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "error" } | null>(null);
   const [editing, setEditing] = useState<Record<string, Partial<Team>>>({});
+  const [leagueNames, setLeagueNames] = useState<Record<string, string>>({});
 
   const notify = (msg: string, tone: "ok" | "error" = "ok") => {
     setToast({ msg, tone });
@@ -118,6 +119,52 @@ export default function AdminTeamsPage() {
             <p className="text-xs text-ink-500">
               振り分け後は「対戦・結果」ページで対戦カードを作成してください。
             </p>
+          </section>
+
+          <section className="card space-y-3 p-4">
+            <h2 className="text-sm font-black text-court-800">リーグ名</h2>
+            <p className="text-xs text-ink-500">
+              参加者の画面には「{state.leagues[0]?.name ?? "①"}リーグ」のように表示されます。
+            </p>
+            <ul className="space-y-2">
+              {state.leagues.map((l) => {
+                const draft = leagueNames[l.id] ?? l.name;
+                return (
+                  <li key={l.id} className="flex items-center gap-2">
+                    <input
+                      className="field h-11 flex-1"
+                      value={draft}
+                      aria-label={`${l.name}リーグの名前`}
+                      onChange={(e) =>
+                        setLeagueNames((s) => ({ ...s, [l.id]: e.target.value }))
+                      }
+                    />
+                    <span className="text-sm font-bold text-ink-700">リーグ</span>
+                    <button
+                      className="btn-primary btn-sm"
+                      disabled={busy || draft.trim() === "" || draft === l.name}
+                      onClick={() =>
+                        call({ action: "rename_league", id: l.id, name: draft }, "変更しました")
+                      }
+                    >
+                      保存
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            <button
+              className="btn-ghost btn-sm"
+              disabled={busy}
+              onClick={() => {
+                if (confirm("リーグ名を ①②③… に付け直します。よろしいですか？")) {
+                  setLeagueNames({});
+                  call({ action: "renumber_leagues" }, "①②③形式にしました");
+                }
+              }}
+            >
+              ①②③… に一括で付け直す
+            </button>
           </section>
 
           {[...state.leagues, null].map((league) => {
