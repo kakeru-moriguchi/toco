@@ -37,16 +37,43 @@ export function maxBracketRound(matches: Match[], tierKey?: string | null): numb
   return rounds.length > 0 ? Math.max(...rounds) : 0;
 }
 
-/** その試合が属する級の表示名（"A級" など）。リーグ戦なら空文字 */
+/** その試合が属する級の表示名（"Aトーナメント" など）。予選リーグなら空文字 */
 export function tierName(match: Match, state: TournamentState): string {
-  if (match.stage !== "bracket") return "";
+  if (!match.tier_key) return "";
   const tier = state.tournament.bracket_tiers.find((t) => t.key === match.tier_key);
   return tier?.name ?? "";
 }
 
-/** 「Aリーグ」「A級 準決勝」など、その試合の所属を表す短い名前 */
+/** 予選のリーグだけ（総当たり形式の級のリーグを除く） */
+export function qualifyingLeagues(state: TournamentState) {
+  return state.leagues.filter((l) => l.tier_key === null);
+}
+
+/** 総当たり形式の級のリーグを探す */
+export function tierLeague(state: TournamentState, tierKey: string) {
+  return state.leagues.find((l) => l.tier_key === tierKey);
+}
+
+/**
+ * 総当たり形式の級に出場しているチーム。
+ * チームの所属（teams.league_id）は予選リーグのままなので、
+ * 出場者はその級の試合から拾う。
+ */
+export function tierLeagueTeams(state: TournamentState, tierKey: string): Team[] {
+  const ids = new Set<string>();
+  for (const m of state.matches) {
+    if (m.tier_key !== tierKey || m.stage !== "league") continue;
+    if (m.team_a_id) ids.add(m.team_a_id);
+    if (m.team_b_id) ids.add(m.team_b_id);
+  }
+  return state.teams.filter((t) => ids.has(t.id));
+}
+
+/** 「①リーグ」「Aトーナメント 準決勝」など、その試合の所属を表す短い名前 */
 export function matchGroupName(match: Match, state: TournamentState): string {
   if (match.stage === "league") {
+    // 総当たり形式の級（例: Cリーグ）は、級の名前をそのまま出す
+    if (match.tier_key) return tierName(match, state) || "順位別リーグ";
     const league = state.leagues.find((l) => l.id === match.league_id);
     return league ? `${league.name}リーグ` : "リーグ戦";
   }

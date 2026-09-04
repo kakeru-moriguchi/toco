@@ -8,9 +8,10 @@ import { LoadingBlock, StatusBadge } from "@/components/ui";
 import { BracketView } from "@/components/BracketView";
 import { ResultEditor } from "@/components/ResultEditor";
 import { StandingsTable } from "@/components/StandingsTable";
-import { computeAllStandings } from "@/lib/standings";
+import { computeAllStandings, computeStandings } from "@/lib/standings";
 import { tierRangeLabel } from "@/lib/tiers";
-import { matchGroupName, sideName } from "@/lib/view";
+import { matchGroupName, qualifyingLeagues, sideName, tierLeagueTeams } from "@/lib/view";
+import { TIER_FORMAT_LABELS } from "@/lib/types";
 
 export default function AdminBracketPage() {
   const { state, loading, refresh } = useTournamentState();
@@ -60,38 +61,52 @@ export default function AdminBracketPage() {
   const standings = useMemo(() => {
     if (!state) return {};
     return computeAllStandings(
-      state.leagues.map((l) => l.id),
+      qualifyingLeagues(state).map((l) => l.id),
       state.teams,
       state.matches,
       state.tournament.tiebreakers
     );
   }, [state]);
 
-  // 級ごとに試合をまとめる
+  // 級ごとに試合をまとめる（トーナメント形式・総当たり形式の両方）
   const tierGroups = useMemo(() => {
     if (!state) return [];
     return state.tournament.bracket_tiers
       .map((tier) => ({
         tier,
         matches: state.matches
-          .filter((m) => m.stage === "bracket" && m.tier_key === tier.key)
+          .filter((m) => m.tier_key === tier.key)
           .sort(
             (a, b) =>
-              (a.round ?? 0) - (b.round ?? 0) || (a.bracket_index ?? 0) - (b.bracket_index ?? 0)
+              (a.round ?? 0) - (b.round ?? 0) ||
+              (a.bracket_index ?? 0) - (b.bracket_index ?? 0) ||
+              a.match_no - b.match_no
           ),
+        rows:
+          tier.format === "league"
+            ? computeStandings(
+                tierLeagueTeams(state, tier.key),
+                state.matches.filter((m) => m.tier_key === tier.key && m.stage === "league"),
+                state.tournament.tiebreakers
+              )
+            : [],
       }))
       .filter((g) => g.matches.length > 0);
   }, [state]);
 
   const bracketCount = tierGroups.reduce((n, g) => n + g.matches.length, 0);
-  const leagueRemaining = (state?.matches ?? []).filter(
-    (m) => m.stage === "league" && m.status !== "done"
-  ).length;
+  const leagueRemaining = useMemo(() => {
+    if (!state) return 0;
+    const ids = new Set(qualifyingLeagues(state).map((l) => l.id));
+    return state.matches.filter(
+      (m) => m.stage === "league" && m.league_id && ids.has(m.league_id) && m.status !== "done"
+    ).length;
+  }, [state]);
 
   return (
     <AdminShell
-      title="順位別トーナメント"
-      description="予選順位をもとに、A級・B級・C級のトーナメントをまとめて作成します。"
+      title="決勝ラウンド"
+      description="予選順位をもとに、すべての級（トーナメント・総当たり）をまとめて作成します。"
     >
       {loading && !state && <LoadingBlock />}
 
@@ -104,7 +119,10 @@ export default function AdminBracketPage() {
                 <li key={t.key} className="flex items-center gap-2">
                   <span className="chip bg-court-100 text-court-800">{t.name}</span>
                   <span>各リーグ{tierRangeLabel(t)}</span>
-                  {t.third_place && <span className="text-ink-500">・3位決定戦あり</span>}
+                  <span className="text-ink-500">・{TIER_FORMAT_LABELS[t.format]}</span>
+                  {t.format === "bracket" && t.third_place && (
+                    <span className="text-ink-500">・3位決定戦あり</span>
+                  )}
                 </li>
               ))}
             </ul>
@@ -129,17 +147,17 @@ export default function AdminBracketPage() {
                 onClick={() => {
                   if (
                     confirm(
-                      "予選順位をもとに全ての級のトーナメント表を作成します。既存のトーナメント結果は消えます。よろしいですか？"
+                      "予選順位をもとに、すべての級の組み合わせを作成します。既存の決勝ラウンドの結果は消えます。よろしいですか？"
                     )
                   ) {
                     call(
                       { action: "generate_bracket", startTime: startTime || undefined },
-                      "トーナメント表を作成しました"
+                      "作成しました"
                     );
                   }
                 }}
               >
-                トーナメント表を作成
+                決勝ラウンドを作成
               </button>
               {leagueRemaining > 0 && (
                 <button
@@ -149,7 +167,7 @@ export default function AdminBracketPage() {
                     if (confirm("予選が未消化の状態で作成します。よろしいですか？")) {
                       call(
                         { action: "generate_bracket", force: true, startTime: startTime || undefined },
-                        "トーナメント表を作成しました"
+                        "作成しました"
                       );
                     }
                   }}
@@ -163,26 +181,35 @@ export default function AdminBracketPage() {
                 className="btn-danger btn-sm"
                 disabled={busy}
                 onClick={() => {
-                  if (confirm("すべての級のトーナメント表を削除します。よろしいですか？")) {
-                    call({ action: "reset_bracket" }, "トーナメント表を削除しました");
+                  if (confirm("すべての級の決勝ラウンドを削除します。よろしいですか？")) {
+                    call({ action: "reset_bracket" }, "削除しました");
                   }
                 }}
               >
-                トーナメント表を削除する
+                決勝ラウンドを削除する
               </button>
             )}
           </section>
 
-          {tierGroups.map(({ tier, matches }) => (
+          {tierGroups.map(({ tier, matches, rows }) => (
             <section key={tier.key} className="space-y-2">
               <div className="card p-3">
-                <h2 className="mb-2 flex items-center gap-2 px-1 text-sm font-black text-court-800">
+                <h2 className="mb-2 flex flex-wrap items-center gap-2 px-1 text-sm font-black text-court-800">
                   <span className="chip bg-court-800 text-white">{tier.name}</span>
+                  <span className="chip bg-court-100 text-court-800">
+                    {TIER_FORMAT_LABELS[tier.format]}
+                  </span>
                   <span className="text-xs font-bold text-ink-500">
                     各リーグ{tierRangeLabel(tier)}・{matches.length}試合
                   </span>
                 </h2>
-                <BracketView state={state} tierKey={tier.key} showReport={false} />
+                {tier.format === "bracket" ? (
+                  <BracketView state={state} tierKey={tier.key} showReport={false} />
+                ) : (
+                  <div className="overflow-hidden rounded-xl ring-1 ring-court-100">
+                    <StandingsTable rows={rows} />
+                  </div>
+                )}
               </div>
 
               <details className="card">
@@ -228,7 +255,7 @@ export default function AdminBracketPage() {
 
           <section className="space-y-3">
             <h2 className="px-1 text-sm font-black text-court-800">予選順位（進出先の確認）</h2>
-            {state.leagues.map((l) => (
+            {qualifyingLeagues(state).map((l) => (
               <div key={l.id} className="card overflow-hidden">
                 <header className="bg-court-800 px-4 py-2 text-sm font-black text-white">
                   {l.name}リーグ

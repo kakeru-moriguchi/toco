@@ -50,11 +50,19 @@ export async function POST(req: NextRequest) {
       const result = await generateBracket(tournament.id, { startTime: body.startTime });
       return ok({ ...(await getState()), tiers: result.tiers });
     } else if (action === "reset_bracket") {
+      // 決勝ラウンドを丸ごと削除（トーナメントの試合と、総当たり級のリーグごと）
       await db.from("matches").delete().eq("tournament_id", tournament.id).eq("stage", "bracket");
+      const { data: tierLeagues } = await db
+        .from("leagues")
+        .select("id")
+        .eq("tournament_id", tournament.id)
+        .not("tier_key", "is", null);
+      const ids = (tierLeagues ?? []).map((l) => l.id as string);
+      if (ids.length > 0) await db.from("leagues").delete().in("id", ids);
       await db.from("tournaments").update({ phase: "league" }).eq("id", tournament.id);
     } else if (action === "auto_schedule") {
-      const stage = body.stage === "bracket" ? "bracket" : "league";
-      await autoAssignSchedule(tournament.id, stage, {
+      const phase = body.stage === "bracket" || body.phase === "finals" ? "finals" : "qualifying";
+      await autoAssignSchedule(tournament.id, phase, {
         startTime: String(body.startTime || tournament.start_time),
         minutesPerMatch: Number(body.minutesPerMatch || tournament.minutes_per_match),
         courts: Array.isArray(body.courts) && body.courts.length > 0 ? body.courts : tournament.courts,

@@ -92,12 +92,24 @@ export function BracketView({
       const r = m.round ?? 1;
       byRound.set(r, [...(byRound.get(r) ?? []), m]);
     }
-    const list = [...byRound.entries()]
-      .sort((a, b) => a[0] - b[0])
-      .map(([round, ms]) => ({
+    const roundNumbers = [...byRound.keys()].sort((a, b) => a - b);
+    if (roundNumbers.length === 0) {
+      return { rounds: [], thirdPlace: third, height: ROW_HEIGHT };
+    }
+    const maxRound = roundNumbers[roundNumbers.length - 1];
+
+    // 不戦勝（BYE）があると、そのラウンドの試合数が本来より少なくなる。
+    // 詰めて並べると木の形が崩れて線が別の相手につながって見えるので、
+    // 空いている位置には何も置かない「すき間」を入れて位置を保つ。
+    const list = roundNumbers.map((round) => {
+      const slots = Math.pow(2, maxRound - round);
+      const byIndex = new Map(byRound.get(round)!.map((m) => [m.bracket_index ?? 0, m]));
+      return {
         round,
-        matches: ms.sort((a, b) => (a.bracket_index ?? 0) - (b.bracket_index ?? 0)),
-      }));
+        matches: Array.from({ length: slots }, (_, i) => byIndex.get(i) ?? null),
+      };
+    });
+
     const first = list[0]?.matches.length ?? 0;
     return { rounds: list, thirdPlace: third, height: Math.max(first, 1) * ROW_HEIGHT };
   }, [state.matches, tierKey]);
@@ -119,16 +131,17 @@ export function BracketView({
                 <div className="flex flex-1 flex-col">
                   {column.matches.map((m, mi) => (
                     <div
-                      key={m.id}
+                      key={m ? m.id : `empty-${column.round}-${mi}`}
                       className={`relative flex flex-1 items-center ${ci > 0 ? "pl-3" : ""} ${
                         isLast ? "" : "pr-3"
                       }`}
                     >
-                      <MatchCard match={m} state={state} showReport={showReport} />
-                      {ci > 0 && (
+                      {/* 不戦勝で試合が無い位置は空けておく（次のラウンドに直接進む） */}
+                      {m && <MatchCard match={m} state={state} showReport={showReport} />}
+                      {m && ci > 0 && (
                         <span className="absolute left-0 top-1/2 h-px w-3 bg-court-300" aria-hidden />
                       )}
-                      {!isLast && (
+                      {m && !isLast && (
                         <>
                           <span className="absolute right-0 top-1/2 h-px w-3 bg-court-300" aria-hidden />
                           <span

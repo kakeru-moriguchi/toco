@@ -1,5 +1,6 @@
 import type { BracketTier, League, Match, Slot, Team, Tiebreaker } from "./types";
 import { computeStandings, type StandingRow } from "./standings";
+import { assignRanksToTiers } from "./tiers";
 
 /**
  * 決勝トーナメントの組み合わせ生成ロジック（独立モジュール）
@@ -67,29 +68,43 @@ export function roundLabel(teamsInRound: number): string {
 /**
  * 予選順位から、ある「級」に出場するチームを強い順（シード順）に並べる。
  *
- * 例: fromRank=1, toRank=2（A級）なら 1位グループ → 2位グループ の順。
- *     fromRank=3, toRank=3（B級）なら 各リーグ3位だけ。
- *
- * 2番目以降の順位グループはリーグの並びをずらして、
- * 同じリーグ同士が早い段階で当たらないようにしている。
+ * リーグごとにチーム数が違う場合、同じ級でも拾う順位が変わる
+ * （例: ①リーグは3位と4位、②③リーグは3位だけ）。
+ * そのため「どの順位を拾うか」は assignRanksToTiers に任せ、
+ * ここでは上位の順位から順に、リーグの並びをずらしながら並べる。
+ * ずらすのは、同じリーグ同士が早い段階で当たらないようにするため。
  */
 export function buildQualifiers(
   leagues: League[],
   standingsByLeague: Record<string, StandingRow[]>,
-  fromRank: number,
-  toRank: number
+  tier: BracketTier,
+  tiers: BracketTier[]
 ): Qualifier[] {
   const sortedLeagues = [...leagues].sort((a, b) => a.sort_order - b.sort_order);
   const L = sortedLeagues.length;
-  const out: Qualifier[] = [];
-  if (L === 0) return out;
+  if (L === 0) return [];
 
-  for (let rank = fromRank; rank <= toRank; rank++) {
-    const shift = ((rank - fromRank) * Math.ceil(L / 2)) % L;
+  // リーグごとに「この級が拾う順位」を求める
+  const picksByLeague = new Map<string, number[]>();
+  for (const league of sortedLeagues) {
+    const rows = standingsByLeague[league.id] ?? [];
+    const ranks = [...assignRanksToTiers(tiers, rows.length).entries()]
+      .filter(([, key]) => key === tier.key)
+      .map(([rank]) => rank)
+      .sort((a, b) => a - b);
+    picksByLeague.set(league.id, ranks);
+  }
+
+  // 拾う順位を小さい順にまとめ、順位グループごとにリーグの並びをずらす
+  const allRanks = [...new Set([...picksByLeague.values()].flat())].sort((a, b) => a - b);
+  const out: Qualifier[] = [];
+
+  allRanks.forEach((rank, groupIndex) => {
+    const shift = (groupIndex * Math.ceil(L / 2)) % L;
     for (let i = 0; i < L; i++) {
       const league = sortedLeagues[(i + shift) % L];
-      const rows = standingsByLeague[league.id] ?? [];
-      const row = rows[rank - 1];
+      if (!picksByLeague.get(league.id)?.includes(rank)) continue;
+      const row = (standingsByLeague[league.id] ?? [])[rank - 1];
       if (!row) continue;
       out.push({
         teamId: row.teamId,
@@ -99,7 +114,8 @@ export function buildQualifiers(
         label: `${league.name}リーグ${rank}位`,
       });
     }
-  }
+  });
+
   return out;
 }
 
@@ -261,13 +277,16 @@ export function planBracket(
 export type PlannedTier = {
   tier: BracketTier;
   qualifiers: Qualifier[];
+  /** format==='bracket' のときだけ中身が入る */
   planned: PlannedMatch[];
   /** 出場チームが足りずに作られなかった場合の理由 */
   skippedReason?: string;
 };
 
 /**
- * 予選結果から、すべての級（A級 / B級 / C級 …）のトーナメント表をまとめて組み立てる。
+ * 予選結果から、すべての級の組み合わせをまとめて組み立てる。
+ * トーナメントの級は試合の木を作り、総当たりの級は出場チームだけ決める
+ * （総当たりの対戦カード生成は data.ts 側でリーグ戦と同じ仕組みを使う）。
  * 出場が2チーム未満の級は作られず、理由が返る。
  */
 export function planBracketsFromLeagues(params: {
@@ -287,12 +306,7 @@ export function planBracketsFromLeagues(params: {
   }
 
   return params.tiers.map((tier) => {
-    const qualifiers = buildQualifiers(
-      params.leagues,
-      standingsByLeague,
-      tier.from_rank,
-      tier.to_rank
-    );
+    const qualifiers = buildQualifiers(params.leagues, standingsByLeague, tier, params.tiers);
     if (qualifiers.length < 2) {
       return {
         tier,
@@ -304,7 +318,10 @@ export function planBracketsFromLeagues(params: {
     return {
       tier,
       qualifiers,
-      planned: planBracket(qualifiers, { thirdPlaceMatch: tier.third_place }),
+      planned:
+        tier.format === "bracket"
+          ? planBracket(qualifiers, { thirdPlaceMatch: tier.third_place })
+          : [],
     };
   });
 }

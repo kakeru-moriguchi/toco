@@ -27,12 +27,14 @@ create table if not exists tournaments (
   -- ここの並びを変えるだけで同率時のルールを差し替えられる。
   -- 使える値: wins / diff / points_for / points_against / head_to_head / win_rate
   tiebreakers        text[]      not null default array['wins','diff','points_for'],
-  -- 順位別トーナメント（A級/B級/C級…）の定義。
-  -- 各リーグの何位から何位までを、どの級に入れるかを持つ。
+  -- 順位別ラウンド（Aトーナメント / Bトーナメント / Cリーグ …）の定義。
+  --   mode   : top(上位から) / bottom(下位から) / rest(残り全部)
+  --   format : bracket(トーナメント) / league(総当たり)
+  -- mode を使うことで、リーグごとにチーム数が違っても振り分けが崩れない。
   bracket_tiers      jsonb       not null default
-    '[{"key":"A","name":"A級","from_rank":1,"to_rank":2,"third_place":true},
-      {"key":"B","name":"B級","from_rank":3,"to_rank":3,"third_place":false},
-      {"key":"C","name":"C級","from_rank":4,"to_rank":4,"third_place":false}]'::jsonb,
+    '[{"key":"A","name":"Aトーナメント","mode":"top","from_rank":1,"to_rank":2,"bottom_count":1,"format":"bracket","third_place":true},
+      {"key":"B","name":"Bトーナメント","mode":"rest","from_rank":3,"to_rank":3,"bottom_count":1,"format":"bracket","third_place":true},
+      {"key":"C","name":"Cリーグ","mode":"bottom","from_rank":4,"to_rank":4,"bottom_count":1,"format":"league","third_place":false}]'::jsonb,
   phase              text        not null default 'setup'
                        check (phase in ('setup','league','bracket','finished')),
   created_at         timestamptz not null default now(),
@@ -45,11 +47,14 @@ create table if not exists tournaments (
 create table if not exists leagues (
   id            uuid primary key default gen_random_uuid(),
   tournament_id uuid not null references tournaments(id) on delete cascade,
-  name          text not null,                -- 'A' など（表示は「Aリーグ」）
+  name          text not null,                -- '①' など（表示は「①リーグ」）
   sort_order    int  not null default 0,
+  -- 総当たり形式の級（例: Cリーグ）用。予選のリーグは null。
+  tier_key      text,
   created_at    timestamptz not null default now()
 );
 create index if not exists leagues_tournament_idx on leagues(tournament_id, sort_order);
+create index if not exists leagues_tier_idx on leagues(tournament_id, tier_key);
 
 -- ------------------------------------------------------------
 -- チーム

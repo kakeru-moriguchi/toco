@@ -27,8 +27,8 @@ const MENU: MenuItem[] = [
   },
   {
     href: "/bracket",
-    title: "決勝トーナメントを見る",
-    description: "トーナメント表と勝ち上がり",
+    title: "決勝ラウンドを見る",
+    description: "トーナメント表・順位別リーグ",
     icon: "trophy",
   },
   {

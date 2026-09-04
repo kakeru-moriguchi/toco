@@ -4,7 +4,7 @@ import { useMemo } from "react";
 import { useTournamentState } from "@/lib/useTournamentState";
 import { computeAllStandings } from "@/lib/standings";
 import { TIEBREAKER_LABELS } from "@/lib/types";
-import { scoreText, sideName } from "@/lib/view";
+import { qualifyingLeagues, scoreText, sideName } from "@/lib/view";
 import { StandingsTable } from "@/components/StandingsTable";
 import { tierRangeLabel } from "@/lib/tiers";
 import { EmptyBlock, ErrorBlock, LiveDot, LoadingBlock, PageShell } from "@/components/ui";
@@ -15,7 +15,7 @@ export default function StandingsPage() {
   const standings = useMemo(() => {
     if (!state) return {};
     return computeAllStandings(
-      state.leagues.map((l) => l.id),
+      qualifyingLeagues(state).map((l) => l.id),
       state.teams,
       state.matches,
       state.tournament.tiebreakers
@@ -26,12 +26,12 @@ export default function StandingsPage() {
     <PageShell title="リーグ表・順位" subtitle="結果が入ると自動で再計算されます" action={<LiveDot updatedAt={updatedAt} />}>
       {loading && !state && <LoadingBlock />}
       {error && <ErrorBlock message={error} onRetry={refresh} />}
-      {state && state.leagues.length === 0 && (
+      {state && qualifyingLeagues(state).length === 0 && (
         <EmptyBlock title="リーグがまだありません" hint="主催者がリーグ分けを行うと表示されます。" />
       )}
 
       <div className="space-y-5">
-        {state?.leagues.map((league) => {
+        {state && qualifyingLeagues(state).map((league) => {
           const rows = standings[league.id] ?? [];
           const matches = state.matches
             .filter((m) => m.stage === "league" && m.league_id === league.id)
@@ -77,7 +77,7 @@ export default function StandingsPage() {
         })}
       </div>
 
-      {state && state.leagues.length > 0 && (
+      {state && qualifyingLeagues(state).length > 0 && (
         <p className="mt-4 rounded-xl bg-white/70 px-4 py-3 text-xs leading-relaxed text-ink-500">
           <span className="font-bold text-court-800">順位の決め方：</span>
           {state.tournament.tiebreakers.map((t, i) => (

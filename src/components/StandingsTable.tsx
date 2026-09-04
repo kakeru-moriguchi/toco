@@ -129,8 +129,10 @@ export function StandingsTable({
           </thead>
           <tbody>
             {rows.map((r) => {
-              const tier = tierForRank(tiers, r.rank);
-              const top = Boolean(tier && tier.from_rank === 1);
+              // どの級に進むかは、そのリーグのチーム数によって変わる
+              // （「最下位」「残り」の指定があるため）
+              const tier = tierForRank(tiers, r.rank, rows.length);
+              const top = Boolean(tier && tiers[0] && tier.key === tiers[0].key);
               return (
                 <tr key={r.teamId} className="border-t border-court-100">
                   <td

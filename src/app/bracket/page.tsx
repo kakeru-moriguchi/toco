@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useTournamentState } from "@/lib/useTournamentState";
 import { BracketView } from "@/components/BracketView";
-import { EmptyBlock, ErrorBlock, LiveDot, LoadingBlock, PageShell } from "@/components/ui";
-import { teamById } from "@/lib/view";
+import { StandingsTable } from "@/components/StandingsTable";
+import { EmptyBlock, ErrorBlock, LiveDot, LoadingBlock, PageShell, StatusBadge } from "@/components/ui";
+import { computeStandings } from "@/lib/standings";
+import { scoreText, sideName, sortMatches, teamById, tierLeagueTeams } from "@/lib/view";
 import { tierRangeLabel } from "@/lib/tiers";
 
 export default function BracketPage() {
@@ -15,7 +18,7 @@ export default function BracketPage() {
   const tiers = useMemo(() => {
     if (!state) return [];
     return state.tournament.bracket_tiers.filter((t) =>
-      state.matches.some((m) => m.stage === "bracket" && m.tier_key === t.key)
+      state.matches.some((m) => m.tier_key === t.key)
     );
   }, [state]);
 
@@ -27,9 +30,25 @@ export default function BracketPage() {
 
   const current = tiers.find((t) => t.key === tierKey);
 
-  // その級の優勝チーム（決勝が終わっていれば表示）
+  /** 総当たり形式の級の順位表 */
+  const leagueRows = useMemo(() => {
+    if (!state || !current || current.format !== "league") return [];
+    return computeStandings(
+      tierLeagueTeams(state, current.key),
+      state.matches.filter((m) => m.tier_key === current.key && m.stage === "league"),
+      state.tournament.tiebreakers
+    );
+  }, [state, current]);
+
+  /** 総当たり形式の級の試合一覧 */
+  const leagueMatches = useMemo(() => {
+    if (!state || !current || current.format !== "league") return [];
+    return sortMatches(state.matches.filter((m) => m.tier_key === current.key));
+  }, [state, current]);
+
+  /** トーナメント形式の級の優勝チーム */
   const champion = useMemo(() => {
-    if (!state || !current) return undefined;
+    if (!state || !current || current.format !== "bracket") return undefined;
     const final = state.matches
       .filter((m) => m.stage === "bracket" && m.tier_key === current.key && !m.is_third_place)
       .sort((a, b) => (b.round ?? 0) - (a.round ?? 0))[0];
@@ -37,25 +56,25 @@ export default function BracketPage() {
     return teamById(state.teams, final.winner_team_id);
   }, [state, current]);
 
-  const hasBracket = tiers.length > 0;
+  const hasRounds = tiers.length > 0;
 
   return (
     <PageShell
-      title="決勝トーナメント"
-      subtitle="勝者は自動で次の試合へ進みます"
+      title="決勝ラウンド"
+      subtitle="予選の順位ごとに分かれています"
       action={<LiveDot updatedAt={updatedAt} />}
     >
       {loading && !state && <LoadingBlock />}
       {error && <ErrorBlock message={error} onRetry={refresh} />}
 
-      {state && !hasBracket && (
+      {state && !hasRounds && (
         <EmptyBlock
-          title="決勝トーナメントはまだ作成されていません"
+          title="決勝ラウンドはまだ作成されていません"
           hint="予選リーグが終わると、主催者が順位をもとに組み合わせを作成します。"
         />
       )}
 
-      {state && hasBracket && current && (
+      {state && hasRounds && current && (
         <>
           {/* 級の切り替えタブ */}
           <div className="scroll-x -mx-1 mb-3 flex gap-2 px-1 pb-1">
@@ -93,7 +112,57 @@ export default function BracketPage() {
             </div>
           )}
 
-          <BracketView state={state} tierKey={current.key} />
+          {/* トーナメント形式 */}
+          {current.format === "bracket" && <BracketView state={state} tierKey={current.key} />}
+
+          {/* 総当たり形式：順位表＋試合一覧 */}
+          {current.format === "league" && (
+            <div className="space-y-4">
+              <section className="card overflow-hidden">
+                <header className="bg-court-800 px-4 py-2.5 text-sm font-black text-white">
+                  {current.name} 順位表
+                </header>
+                <StandingsTable rows={leagueRows} />
+              </section>
+
+              <section className="card overflow-hidden">
+                <header className="bg-court-800 px-4 py-2.5 text-sm font-black text-white">
+                  {current.name} 試合
+                </header>
+                <ul className="divide-y divide-court-100">
+                  {leagueMatches.map((m) => (
+                    <li key={m.id} className="flex items-center gap-3 px-3 py-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[11px] font-bold text-court-700">
+                          {m.court && (
+                            <span className="rounded bg-court-800 px-1.5 py-0.5 text-white">
+                              コート{m.court}
+                            </span>
+                          )}
+                          <StatusBadge status={m.status} />
+                        </div>
+                        <p className="text-[15px] font-bold leading-snug">
+                          {sideName(m, "a", state.teams)}
+                          <span className="mx-2 text-ink-500">vs</span>
+                          {sideName(m, "b", state.teams)}
+                        </p>
+                        {m.status === "done" && (
+                          <p className="mt-0.5 text-sm font-black tabular-nums text-court-800">
+                            {scoreText(m)}
+                          </p>
+                        )}
+                      </div>
+                      {m.status !== "done" && m.team_a_id && m.team_b_id && (
+                        <Link href={`/report/${m.id}`} className="btn-accent btn-sm shrink-0">
+                          結果入力
+                        </Link>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            </div>
+          )}
         </>
       )}
     </PageShell>

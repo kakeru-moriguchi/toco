@@ -1,12 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AdminShell, Toast } from "@/components/AdminShell";
 import { useTournamentState } from "@/lib/useTournamentState";
 import { adminPatch } from "@/lib/adminApi";
 import { LoadingBlock } from "@/components/ui";
-import { nextTierKey, validateTiers } from "@/lib/tiers";
-import { TIEBREAKER_LABELS, type BracketTier, type Tiebreaker } from "@/lib/types";
+import { describeTierAllocation, nextTierKey, validateTiers } from "@/lib/tiers";
+import {
+  TIEBREAKER_LABELS,
+  TIER_FORMAT_LABELS,
+  TIER_MODE_LABELS,
+  type BracketTier,
+  type Tiebreaker,
+  type TierFormat,
+  type TierMode,
+} from "@/lib/types";
 
 const ALL_TIEBREAKERS: Tiebreaker[] = [
   "wins",
@@ -56,15 +64,29 @@ export default function AdminTournamentPage() {
     const key = nextTierKey(tiers);
     setTiers([
       ...tiers,
-      { key, name: `${key}級`, from_rank: maxRank + 1, to_rank: maxRank + 1, third_place: false },
+      {
+        key,
+        name: `${key}トーナメント`,
+        mode: "top",
+        from_rank: maxRank + 1,
+        to_rank: maxRank + 1,
+        bottom_count: 1,
+        format: "bracket",
+        third_place: false,
+      },
     ]);
   };
 
-  /** その級に何チーム出場するかの目安（リーグ数 × 対象順位の数） */
-  const estimateTeams = (from: number, to: number) => {
-    const leagues = state?.leagues.length ?? Number(form?.league_count ?? 0);
-    return Math.max(0, (to - from + 1) * leagues);
-  };
+  /** 実際の予選リーグ（チーム数つき）。誰がどの級に行くかの確認に使う。 */
+  const qualifyingLeagues = useMemo(() => {
+    if (!state) return [];
+    return state.leagues
+      .filter((l) => l.tier_key === null)
+      .map((l) => ({
+        name: `${l.name}リーグ`,
+        teamCount: state.teams.filter((t) => t.league_id === l.id).length,
+      }));
+  }, [state]);
 
   const tierError = validateTiers(tiers);
 
@@ -154,11 +176,14 @@ export default function AdminTournamentPage() {
           </section>
 
           <section className="card space-y-3 p-4">
-            <h2 className="text-sm font-black text-court-800">順位別トーナメント（級）</h2>
+            <h2 className="text-sm font-black text-court-800">順位別ラウンド（級）</h2>
             <p className="text-xs leading-relaxed text-ink-500">
-              予選の順位ごとに、別々のトーナメントを作ります。
-              例：各リーグ1〜2位＝A級／3位＝B級／4位＝C級。
-              同じ順位を複数の級に入れることはできません。
+              予選の順位ごとに別のラウンドを作ります。上から順に順位を取り合い、
+              「残り全部」の級が最後にあまりを引き受けます。
+              <br />
+              例：<strong>上位から1〜2位＝A</strong> ／ <strong>下位から1チーム＝C</strong> ／{" "}
+              <strong>残り全部＝B</strong>。
+              こうしておくと、リーグごとにチーム数が違っても正しく振り分けられます。
             </p>
 
             <ul className="space-y-2">
@@ -180,44 +205,114 @@ export default function AdminTournamentPage() {
                       削除
                     </button>
                   </div>
-                  <div className="flex flex-wrap items-end gap-2">
-                    <label className="text-xs font-bold text-court-800">
-                      対象：各リーグ
-                      <input
-                        type="number"
-                        min={1}
-                        max={30}
-                        className="field ml-1 h-11 w-20 text-center tabular-nums"
-                        value={tier.from_rank}
-                        onChange={(e) => updateTier(i, { from_rank: Number(e.target.value) })}
-                      />
-                    </label>
-                    <span className="pb-3 text-sm font-bold text-ink-700">位 〜</span>
-                    <label className="text-xs font-bold text-court-800">
-                      <input
-                        type="number"
-                        min={1}
-                        max={30}
-                        className="field h-11 w-20 text-center tabular-nums"
-                        value={tier.to_rank}
-                        onChange={(e) => updateTier(i, { to_rank: Number(e.target.value) })}
-                      />
-                    </label>
-                    <span className="pb-3 text-sm font-bold text-ink-700">位</span>
-                    <label className="flex items-center gap-2 pb-3 text-sm font-bold text-court-800">
-                      <input
-                        type="checkbox"
-                        className="h-5 w-5"
-                        checked={tier.third_place}
-                        onChange={(e) => updateTier(i, { third_place: e.target.checked })}
-                      />
-                      3位決定戦
-                    </label>
+                  {/* 対象の選び方 */}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-bold text-court-800">対象：各リーグの</span>
+                    <select
+                      className="field h-11 w-auto"
+                      value={tier.mode}
+                      onChange={(e) => updateTier(i, { mode: e.target.value as TierMode })}
+                      aria-label={`${tier.name}の対象の選び方`}
+                    >
+                      {(Object.keys(TIER_MODE_LABELS) as TierMode[]).map((m) => (
+                        <option key={m} value={m}>
+                          {TIER_MODE_LABELS[m]}
+                        </option>
+                      ))}
+                    </select>
+
+                    {tier.mode === "top" && (
+                      <>
+                        <input
+                          type="number"
+                          min={1}
+                          max={30}
+                          className="field h-11 w-16 text-center tabular-nums"
+                          value={tier.from_rank}
+                          onChange={(e) => updateTier(i, { from_rank: Number(e.target.value) })}
+                        />
+                        <span className="text-sm font-bold text-ink-700">位 〜</span>
+                        <input
+                          type="number"
+                          min={1}
+                          max={30}
+                          className="field h-11 w-16 text-center tabular-nums"
+                          value={tier.to_rank}
+                          onChange={(e) => updateTier(i, { to_rank: Number(e.target.value) })}
+                        />
+                        <span className="text-sm font-bold text-ink-700">位</span>
+                      </>
+                    )}
+
+                    {tier.mode === "bottom" && (
+                      <>
+                        <input
+                          type="number"
+                          min={1}
+                          max={30}
+                          className="field h-11 w-16 text-center tabular-nums"
+                          value={tier.bottom_count}
+                          onChange={(e) => updateTier(i, { bottom_count: Number(e.target.value) })}
+                        />
+                        <span className="text-sm font-bold text-ink-700">チーム</span>
+                      </>
+                    )}
+
+                    {tier.mode === "rest" && (
+                      <span className="text-sm font-bold text-ink-700">
+                        （他の級に入らなかったチーム）
+                      </span>
+                    )}
                   </div>
-                  <p className="text-xs text-ink-500">
-                    {state ? `${state.leagues.length}リーグなら ` : ""}
-                    出場 {estimateTeams(tier.from_rank, tier.to_rank)} チーム
-                  </p>
+
+                  {/* 進め方 */}
+                  <div className="flex flex-wrap items-center gap-3">
+                    <label className="flex items-center gap-2 text-xs font-bold text-court-800">
+                      進め方
+                      <select
+                        className="field h-11 w-auto"
+                        value={tier.format}
+                        onChange={(e) => updateTier(i, { format: e.target.value as TierFormat })}
+                      >
+                        {(Object.keys(TIER_FORMAT_LABELS) as TierFormat[]).map((f) => (
+                          <option key={f} value={f}>
+                            {TIER_FORMAT_LABELS[f]}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {tier.format === "bracket" && (
+                      <label className="flex items-center gap-2 text-sm font-bold text-court-800">
+                        <input
+                          type="checkbox"
+                          className="h-5 w-5"
+                          checked={tier.third_place}
+                          onChange={(e) => updateTier(i, { third_place: e.target.checked })}
+                        />
+                        3位決定戦
+                      </label>
+                    )}
+                  </div>
+
+                  {/* いま登録されているチーム数で、誰がこの級に来るかを表示 */}
+                  {qualifyingLeagues.length > 0 &&
+                    (() => {
+                      const a = describeTierAllocation(tier, qualifyingLeagues, tiers);
+                      return (
+                        <p className="rounded-lg bg-white px-2 py-1.5 text-xs text-ink-700">
+                          {a.total > 0 ? (
+                            <>
+                              <span className="font-bold text-court-800">{a.total}チーム</span>
+                              　{a.text}
+                            </>
+                          ) : (
+                            <span className="text-amber-700">
+                              この設定では出場チームがいません
+                            </span>
+                          )}
+                        </p>
+                      );
+                    })()}
                 </li>
               ))}
             </ul>

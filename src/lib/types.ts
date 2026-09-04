@@ -13,27 +13,85 @@ export type Tiebreaker =
   | "win_rate";
 
 /**
- * 順位別トーナメントの「級」の定義。
- * 例: A級 = 各リーグ1〜2位 / B級 = 各リーグ3位 / C級 = 各リーグ4位
- * 対象順位を範囲で持たせているので、チーム数やリーグ数が変わっても使い回せる。
+ * 「級」が各リーグの誰を対象にするかの指定方法。
+ *  top    … 上位から。1位〜2位 など
+ *  bottom … 下位から。最下位から1つ など
+ *  rest   … 他の級に入らなかった残り全部
+ *
+ * リーグごとにチーム数が違っても（①5チーム・②③4チーム など）、
+ * bottom と rest を使えば「最下位はCへ、間はBへ」が設定を変えずに成立する。
+ * 当日欠場でチーム数が変わっても振り分けが崩れない。
+ */
+export type TierMode = "top" | "bottom" | "rest";
+
+/** 級の進め方。トーナメント戦か、総当たりか。 */
+export type TierFormat = "bracket" | "league";
+
+/**
+ * 順位別ラウンドの「級」の定義。
+ * 例: Aトーナメント = 各リーグ上位2 / Bトーナメント = 残り / Cリーグ = 各リーグ最下位
  */
 export type BracketTier = {
   /** 内部キー（matches.tier_key と対応。変更しない） */
   key: string;
-  /** 表示名。例 "A級" */
+  /** 表示名。例 "Aトーナメント" */
   name: string;
-  /** 対象にする順位の範囲（1位始まり、両端を含む） */
+  /** 対象の選び方 */
+  mode: TierMode;
+  /** mode==='top' のとき使う（1位始まり、両端を含む） */
   from_rank: number;
   to_rank: number;
-  /** その級で3位決定戦を行うか */
+  /** mode==='bottom' のとき使う。最下位から何チームか */
+  bottom_count: number;
+  /** 進め方 */
+  format: TierFormat;
+  /** トーナメントのとき、3位決定戦を行うか */
   third_place: boolean;
 };
 
 export const DEFAULT_BRACKET_TIERS: BracketTier[] = [
-  { key: "A", name: "A級", from_rank: 1, to_rank: 2, third_place: true },
-  { key: "B", name: "B級", from_rank: 3, to_rank: 3, third_place: false },
-  { key: "C", name: "C級", from_rank: 4, to_rank: 4, third_place: false },
+  {
+    key: "A",
+    name: "Aトーナメント",
+    mode: "top",
+    from_rank: 1,
+    to_rank: 2,
+    bottom_count: 1,
+    format: "bracket",
+    third_place: true,
+  },
+  {
+    key: "B",
+    name: "Bトーナメント",
+    mode: "rest",
+    from_rank: 3,
+    to_rank: 3,
+    bottom_count: 1,
+    format: "bracket",
+    third_place: true,
+  },
+  {
+    key: "C",
+    name: "Cリーグ",
+    mode: "bottom",
+    from_rank: 4,
+    to_rank: 4,
+    bottom_count: 1,
+    format: "league",
+    third_place: false,
+  },
 ];
+
+export const TIER_MODE_LABELS: Record<TierMode, string> = {
+  top: "上位から",
+  bottom: "下位から",
+  rest: "残り全部",
+};
+
+export const TIER_FORMAT_LABELS: Record<TierFormat, string> = {
+  bracket: "トーナメント",
+  league: "総当たり",
+};
 
 export type Tournament = {
   id: string;
@@ -57,6 +115,8 @@ export type League = {
   tournament_id: string;
   name: string;
   sort_order: number;
+  /** 総当たり形式の級のリーグなら級のキー。予選リーグは null。 */
+  tier_key: string | null;
 };
 
 export type Team = {
