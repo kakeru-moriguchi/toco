@@ -2,7 +2,8 @@ import { supabaseAdmin } from "./supabase";
 import { assignSchedule, roundRobin } from "./schedule";
 import { planBracketsFromLeagues, resolveBracketProgress, type PlannedTier } from "./bracket";
 import { normalizeTiers } from "./tiers";
-import type { League, Match, Team, Tournament, TournamentState } from "./types";
+import { normalizeSets, validateSets } from "./score";
+import type { League, Match, SetScore, Team, Tournament, TournamentState } from "./types";
 
 /**
  * サーバー側のデータ操作。
@@ -14,8 +15,14 @@ import type { League, Match, Team, Tournament, TournamentState } from "./types";
 function toTournament(row: Record<string, unknown>): Tournament {
   return {
     ...(row as unknown as Tournament),
+    sets_to_win: Math.max(1, Math.trunc(Number(row.sets_to_win)) || 1),
     bracket_tiers: normalizeTiers(row.bracket_tiers),
   };
+}
+
+/** DBの試合行を、画面がそのまま使える形に整える */
+function toMatch(row: Record<string, unknown>): Match {
+  return { ...(row as unknown as Match), sets: normalizeSets(row.sets) };
 }
 
 export async function getTournament(): Promise<Tournament> {
@@ -53,7 +60,7 @@ export async function getState(): Promise<TournamentState> {
     tournament,
     leagues: (leagues.data ?? []) as League[],
     teams: (teams.data ?? []) as Team[],
-    matches: (matches.data ?? []) as Match[],
+    matches: (matches.data ?? []).map((m) => toMatch(m as Record<string, unknown>)),
   };
 }
 
@@ -441,14 +448,19 @@ export async function recomputeBracket(tournamentId: string) {
 
 export type ResultInput = {
   matchId: string;
-  scoreA: number;
-  scoreB: number;
+  /** 各セットのスコア。1セットのみの大会なら要素1つ */
+  sets: SetScore[];
   actor: "team" | "admin";
 };
 
-/** 試合結果を登録・修正する（参加者・主催者共通の入口） */
+/**
+ * 試合結果を登録・修正する（参加者・主催者共通の入口）。
+ * 勝敗は取ったセット数で決まり、順位表用の得点・失点には全セットの合計点を入れる。
+ */
 export async function saveResult(input: ResultInput): Promise<Match> {
   const db = supabaseAdmin();
+  const tournament = await getTournament();
+
   const { data: found, error: findError } = await db
     .from("matches")
     .select("*")
@@ -460,21 +472,19 @@ export async function saveResult(input: ResultInput): Promise<Match> {
   if (!match.team_a_id || !match.team_b_id) {
     throw new Error("対戦チームがまだ決まっていません。");
   }
-  const a = Math.trunc(input.scoreA);
-  const b = Math.trunc(input.scoreB);
-  if (!Number.isFinite(a) || !Number.isFinite(b) || a < 0 || b < 0) {
-    throw new Error("スコアは0以上の数字で入力してください。");
-  }
-  if (a > 99 || b > 99) throw new Error("スコアが大きすぎます。");
-  if (a === b) throw new Error("同点では登録できません。どちらかが勝った状態で入力してください。");
 
-  const winner = a > b ? match.team_a_id : match.team_b_id;
+  const sets = normalizeSets(input.sets);
+  const check = validateSets(sets, tournament.sets_to_win);
+  if (!check.ok || !check.winner) throw new Error(check.error ?? "スコアを確認してください。");
+
+  const winner = check.winner === "a" ? match.team_a_id : match.team_b_id;
 
   const { data: updated, error } = await db
     .from("matches")
     .update({
-      score_a: a,
-      score_b: b,
+      sets,
+      score_a: check.totalPoints.a,
+      score_b: check.totalPoints.b,
       winner_team_id: winner,
       status: "done",
       reported_at: new Date().toISOString(),
@@ -490,10 +500,14 @@ export async function saveResult(input: ResultInput): Promise<Match> {
     tournamentId: match.tournament_id,
     matchId: match.id,
     action: input.actor === "admin" ? "admin_edit" : "report",
-    scoreA: a,
-    scoreB: b,
+    scoreA: check.totalPoints.a,
+    scoreB: check.totalPoints.b,
     actor: input.actor,
-    payload: { previous: { score_a: match.score_a, score_b: match.score_b } },
+    payload: {
+      sets,
+      sets_won: check.setsWon,
+      previous: { sets: match.sets, score_a: match.score_a, score_b: match.score_b },
+    },
   });
 
   if (match.stage === "bracket") {
@@ -513,6 +527,7 @@ export async function clearResult(matchId: string) {
   await db
     .from("matches")
     .update({
+      sets: [],
       score_a: null,
       score_b: null,
       winner_team_id: null,

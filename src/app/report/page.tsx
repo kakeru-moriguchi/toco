@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useTournamentState } from "@/lib/useTournamentState";
 import { matchGroupName, scoreText, sideName, sortMatches } from "@/lib/view";
+import { setsDetail } from "@/lib/score";
 import { EmptyBlock, ErrorBlock, LoadingBlock, PageShell, StatusBadge } from "@/components/ui";
 
 export default function ReportListPage() {
@@ -82,7 +83,12 @@ export default function ReportListPage() {
                   </p>
                   {m.status === "done" && (
                     <p className="mt-0.5 text-sm font-black text-court-700 tabular-nums">
-                      登録済み {scoreText(m)}
+                      登録済み {scoreText(m, state)}
+                      {setsDetail(m, state.tournament) && (
+                        <span className="ml-2 text-xs font-bold text-ink-500">
+                          {setsDetail(m, state.tournament)}
+                        </span>
+                      )}
                     </p>
                   )}
                 </div>

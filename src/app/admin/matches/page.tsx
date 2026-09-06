@@ -101,13 +101,14 @@ export default function AdminMatchesPage() {
                   </span>
                 </div>
                 <ResultEditor
-                  key={`${m.id}-${m.score_a}-${m.score_b}-${m.status}`}
+                  key={`${m.id}-${m.status}-${JSON.stringify(m.sets)}`}
                   match={m}
                   teamA={sideName(m, "a", state.teams)}
                   teamB={sideName(m, "b", state.teams)}
                   busy={busy}
-                  onSave={(a, b) =>
-                    call("/api/admin/matches", { action: "result", id: m.id, scoreA: a, scoreB: b }, "結果を保存しました")
+                  setsToWin={state.tournament.sets_to_win}
+                  onSave={(sets) =>
+                    call("/api/admin/matches", { action: "result", id: m.id, sets }, "結果を保存しました")
                   }
                   onClear={() => call("/api/admin/matches", { action: "clear", id: m.id }, "結果を取り消しました")}
                   onStatus={(status) =>

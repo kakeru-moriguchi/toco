@@ -5,55 +5,51 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTournamentState } from "@/lib/useTournamentState";
 import { matchGroupName, sideName } from "@/lib/view";
+import { matchSets, maxSets, validateSets } from "@/lib/score";
 import { EmptyBlock, ErrorBlock, LoadingBlock, PageShell } from "@/components/ui";
+import type { SetScore } from "@/lib/types";
 
-/** 大きな数字入力（片手で押せるサイズにしてある） */
-function ScoreInput({
-  teamName,
+/** 入力中は空欄を許したいので、文字列で持っておく */
+type SetInput = { a: string; b: string };
+
+/** セット1つぶんの入力欄 */
+function SetRow({
+  label,
   value,
   onChange,
+  autoFocus,
 }: {
-  teamName: string;
-  value: number;
-  onChange: (v: number) => void;
+  label: string;
+  value: SetInput;
+  onChange: (v: SetInput) => void;
+  autoFocus?: boolean;
 }) {
+  const clean = (s: string) => s.replace(/[^0-9]/g, "").slice(0, 2);
   return (
-    <div className="rounded-2xl bg-court-50 p-3">
-      <p className="mb-2 break-words text-center text-base font-black leading-snug text-court-900">
-        {teamName}
-      </p>
-      <div className="flex items-center justify-center gap-3">
-        <button
-          type="button"
-          aria-label={`${teamName} のスコアを1減らす`}
-          className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white text-3xl font-black text-court-700 shadow-card ring-1 ring-court-200 active:scale-95"
-          onClick={() => onChange(Math.max(0, value - 1))}
-        >
-          −
-        </button>
-        <input
-          type="number"
-          inputMode="numeric"
-          pattern="[0-9]*"
-          className="h-20 w-24 rounded-2xl border-2 border-court-200 bg-white text-center text-4xl font-black tabular-nums text-court-900 outline-none focus:border-court-500"
-          value={value}
-          min={0}
-          max={99}
-          onChange={(e) => {
-            const n = Number(e.target.value.replace(/[^0-9]/g, ""));
-            onChange(Number.isFinite(n) ? Math.min(99, Math.max(0, n)) : 0);
-          }}
-          onFocus={(e) => e.currentTarget.select()}
-        />
-        <button
-          type="button"
-          aria-label={`${teamName} のスコアを1増やす`}
-          className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-court-700 text-3xl font-black text-white shadow-card active:scale-95"
-          onClick={() => onChange(Math.min(99, value + 1))}
-        >
-          ＋
-        </button>
-      </div>
+    <div className="flex items-center gap-2">
+      <span className="w-[74px] shrink-0 whitespace-nowrap text-sm font-black text-court-800">{label}</span>
+      <input
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        aria-label={`${label} 左のチームの得点`}
+        className="h-16 min-w-0 flex-1 rounded-xl border-2 border-court-200 bg-white text-center text-3xl font-black tabular-nums text-court-900 outline-none focus:border-court-500"
+        value={value.a}
+        autoFocus={autoFocus}
+        onChange={(e) => onChange({ ...value, a: clean(e.target.value) })}
+        onFocus={(e) => e.currentTarget.select()}
+      />
+      <span className="shrink-0 text-lg font-black text-ink-500">-</span>
+      <input
+        type="text"
+        inputMode="numeric"
+        pattern="[0-9]*"
+        aria-label={`${label} 右のチームの得点`}
+        className="h-16 min-w-0 flex-1 rounded-xl border-2 border-court-200 bg-white text-center text-3xl font-black tabular-nums text-court-900 outline-none focus:border-court-500"
+        value={value.b}
+        onChange={(e) => onChange({ ...value, b: clean(e.target.value) })}
+        onFocus={(e) => e.currentTarget.select()}
+      />
     </div>
   );
 }
@@ -63,8 +59,7 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
   const router = useRouter();
   const { state, loading, error, refresh } = useTournamentState();
 
-  const [scoreA, setScoreA] = useState(0);
-  const [scoreB, setScoreB] = useState(0);
+  const [inputs, setInputs] = useState<SetInput[]>([]);
   const [step, setStep] = useState<"input" | "confirm" | "done">("input");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -74,19 +69,33 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
     () => state?.matches.find((m) => m.id === matchId) ?? null,
     [state, matchId]
   );
+  const setsToWin = Math.max(1, state?.tournament.sets_to_win ?? 1);
+  const limit = maxSets(setsToWin);
 
   // すでに結果がある場合は、その値を初期表示にする（修正しやすくするため）
   useEffect(() => {
-    if (!match || initialized) return;
-    if (match.score_a !== null && match.score_b !== null) {
-      setScoreA(match.score_a);
-      setScoreB(match.score_b);
-    }
+    if (!match || !state || initialized) return;
+    const existing = matchSets(match);
+    setInputs(
+      Array.from({ length: limit }, (_, i) =>
+        existing[i] ? { a: String(existing[i].a), b: String(existing[i].b) } : { a: "", b: "" }
+      )
+    );
     setInitialized(true);
-  }, [match, initialized]);
+  }, [match, state, initialized, limit]);
 
   const teamA = match && state ? sideName(match, "a", state.teams) : "";
   const teamB = match && state ? sideName(match, "b", state.teams) : "";
+
+  /** 空欄のセットを落として、数値の配列にする */
+  const sets: SetScore[] = useMemo(
+    () =>
+      inputs
+        .filter((s) => s.a !== "" || s.b !== "")
+        .map((s) => ({ a: Number(s.a || 0), b: Number(s.b || 0) })),
+    [inputs]
+  );
+  const check = useMemo(() => validateSets(sets, setsToWin), [sets, setsToWin]);
 
   const submit = async () => {
     setSubmitting(true);
@@ -95,7 +104,7 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
       const res = await fetch(`/api/matches/${matchId}/report`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scoreA, scoreB }),
+        body: JSON.stringify({ sets }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? "登録できませんでした。");
@@ -131,9 +140,12 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
     );
   }
 
+  const setLabel = (i: number) => (setsToWin === 1 ? "スコア" : `第${i + 1}セット`);
+  const detailText = sets.map((s) => `${s.a}-${s.b}`).join(" / ");
+  const winnerName = check.winner === "a" ? teamA : teamB;
+
   // 送信完了画面
   if (step === "done") {
-    const winner = scoreA > scoreB ? teamA : teamB;
     return (
       <PageShell title="送信しました" backHref="/report">
         <div className="card space-y-4 p-6 text-center">
@@ -143,9 +155,10 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
           <div>
             <p className="text-lg font-black text-court-900">結果を登録しました</p>
             <p className="mt-2 text-2xl font-black tabular-nums text-court-800">
-              {scoreA} - {scoreB}
+              {setsToWin === 1 ? detailText : `${check.setsWon.a} - ${check.setsWon.b}`}
             </p>
-            <p className="mt-1 text-sm font-bold text-ink-700">勝ち：{winner}</p>
+            {setsToWin > 1 && <p className="text-sm font-bold text-ink-500">{detailText}</p>}
+            <p className="mt-1 text-sm font-bold text-ink-700">勝ち：{winnerName}</p>
           </div>
           <p className="text-sm text-ink-500">
             順位表・トーナメント表は自動で更新されます。
@@ -170,33 +183,57 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
 
   // 確認画面（誤入力対策）
   if (step === "confirm") {
-    const winner = scoreA > scoreB ? teamA : teamB;
     return (
       <PageShell title="この内容で登録します" backHref="/report">
         <div className="card space-y-5 p-5">
-          <p className="text-center text-sm font-bold text-ink-700">
-            内容を確認してください
-          </p>
+          <p className="text-center text-sm font-bold text-ink-700">内容を確認してください</p>
+
           <div className="rounded-2xl bg-court-50 p-4">
             <div className="flex items-center justify-between gap-3">
-              <span className="min-w-0 flex-1 break-words text-base font-black text-court-900">{teamA}</span>
-              <span className="shrink-0 text-3xl font-black tabular-nums text-court-900">{scoreA}</span>
+              <span className="min-w-0 flex-1 break-words text-base font-black text-court-900">
+                {teamA}
+              </span>
+              <span className="shrink-0 text-3xl font-black tabular-nums text-court-900">
+                {check.setsWon.a}
+              </span>
             </div>
             <div className="my-2 h-px bg-court-200" />
             <div className="flex items-center justify-between gap-3">
-              <span className="min-w-0 flex-1 break-words text-base font-black text-court-900">{teamB}</span>
-              <span className="shrink-0 text-3xl font-black tabular-nums text-court-900">{scoreB}</span>
+              <span className="min-w-0 flex-1 break-words text-base font-black text-court-900">
+                {teamB}
+              </span>
+              <span className="shrink-0 text-3xl font-black tabular-nums text-court-900">
+                {check.setsWon.b}
+              </span>
             </div>
+            {setsToWin > 1 && (
+              <>
+                <div className="my-2 h-px bg-court-200" />
+                <ul className="space-y-1">
+                  {sets.map((s, i) => (
+                    <li key={i} className="flex items-center gap-2 text-sm">
+                      <span className="w-[74px] shrink-0 whitespace-nowrap font-bold text-ink-500">{setLabel(i)}</span>
+                      <span className="font-black tabular-nums text-court-900">
+                        {s.a} - {s.b}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
           </div>
+
           <p className="text-center text-base font-black text-court-800">
-            {teamA} {scoreA} - {scoreB} {teamB}
+            {teamA} {check.setsWon.a} - {check.setsWon.b} {teamB}
             <br />
-            <span className="text-sm font-bold text-ink-700">勝ち：{winner}</span>
+            <span className="text-sm font-bold text-ink-700">勝ち：{winnerName}</span>
           </p>
           <p className="text-center text-sm font-bold text-ink-900">この結果で登録しますか？</p>
 
           {submitError && (
-            <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{submitError}</p>
+            <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-bold text-red-700">
+              {submitError}
+            </p>
           )}
 
           <div className="grid gap-2">
@@ -213,7 +250,6 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
   }
 
   // 入力画面
-  const invalidSame = scoreA === scoreB;
   return (
     <PageShell
       title="結果入力"
@@ -222,27 +258,60 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
     >
       {match.status === "done" && (
         <div className="card mb-3 border-l-4 border-l-ball-500 p-3 text-sm font-bold text-court-800">
-          この試合はすでに登録済みです（{match.score_a} - {match.score_b}）。
+          この試合はすでに登録済みです。
           <br />
           入力し直すと結果が上書きされます。
         </div>
       )}
 
-      <div className="card space-y-3 p-4">
-        <ScoreInput teamName={teamA} value={scoreA} onChange={setScoreA} />
-        <p className="text-center text-sm font-black text-ink-500">VS</p>
-        <ScoreInput teamName={teamB} value={scoreB} onChange={setScoreB} />
+      <div className="card space-y-4 p-4">
+        {/* どちらの欄がどのチームか */}
+        <div className="flex items-center gap-2">
+          <span className="w-[74px] shrink-0" />
+          <span className="min-w-0 flex-1 break-words text-center text-sm font-black leading-tight text-court-900">
+            {teamA}
+          </span>
+          <span className="shrink-0 text-sm font-black text-ink-500">vs</span>
+          <span className="min-w-0 flex-1 break-words text-center text-sm font-black leading-tight text-court-900">
+            {teamB}
+          </span>
+        </div>
 
-        {invalidSame && (
-          <p className="rounded-xl bg-amber-50 px-3 py-2 text-center text-sm font-bold text-amber-700">
-            同点では登録できません。勝敗が決まったスコアを入力してください。
+        <div className="space-y-2">
+          {inputs.map((v, i) => (
+            <SetRow
+              key={i}
+              label={setLabel(i)}
+              value={v}
+              autoFocus={i === 0}
+              onChange={(next) => setInputs((list) => list.map((x, j) => (j === i ? next : x)))}
+            />
+          ))}
+        </div>
+
+        {setsToWin > 1 && (
+          <p className="rounded-xl bg-court-50 px-3 py-2 text-xs leading-relaxed text-ink-700">
+            {setsToWin}セット先取です。決着したら残りのセットは<strong>空欄のまま</strong>で送信してください。
+            {check.setsWon.a + check.setsWon.b > 0 && (
+              <span className="mt-1 block font-bold text-court-800">
+                現在 {check.setsWon.a} - {check.setsWon.b}
+              </span>
+            )}
+          </p>
+        )}
+
+        {sets.length > 0 && !check.ok && check.error && (
+          <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm font-bold text-amber-800">
+            {check.error}
           </p>
         )}
         {submitError && (
-          <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{submitError}</p>
+          <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-bold text-red-700">
+            {submitError}
+          </p>
         )}
 
-        <button className="btn-accent w-full" onClick={() => setStep("confirm")} disabled={invalidSame}>
+        <button className="btn-accent w-full" onClick={() => setStep("confirm")} disabled={!check.ok}>
           結果を送信する
         </button>
         <button className="btn-ghost w-full" onClick={() => router.push("/report")}>

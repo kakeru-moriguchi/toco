@@ -9,6 +9,7 @@ import { EmptyBlock, ErrorBlock, LiveDot, LoadingBlock, PageShell, StatusBadge }
 import { computeStandings } from "@/lib/standings";
 import { scoreText, sideName, sortMatches, teamById, tierLeagueTeams } from "@/lib/view";
 import { tierRangeLabel } from "@/lib/tiers";
+import { setsDetail } from "@/lib/score";
 
 export default function BracketPage() {
   const { state, loading, error, refresh, updatedAt } = useTournamentState();
@@ -148,7 +149,12 @@ export default function BracketPage() {
                         </p>
                         {m.status === "done" && (
                           <p className="mt-0.5 text-sm font-black tabular-nums text-court-800">
-                            {scoreText(m)}
+                            {scoreText(m, state)}
+                            {setsDetail(m, state.tournament) && (
+                              <span className="ml-2 text-[11px] font-bold text-ink-500">
+                                {setsDetail(m, state.tournament)}
+                              </span>
+                            )}
                           </p>
                         )}
                       </div>

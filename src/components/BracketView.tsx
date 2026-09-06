@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import type { Match, TournamentState } from "@/lib/types";
 import { bracketRoundName } from "@/lib/bracket";
 import { maxBracketRound, sideName } from "@/lib/view";
+import { headlineSide, setsDetail } from "@/lib/score";
 
 /**
  * トーナメント表。
@@ -39,7 +40,7 @@ function MatchCard({
       </div>
       {(["a", "b"] as const).map((slot) => {
         const teamId = slot === "a" ? match.team_a_id : match.team_b_id;
-        const score = slot === "a" ? match.score_a : match.score_b;
+        const score = headlineSide(match, slot, state.tournament);
         const isWinner = match.status === "done" && match.winner_team_id === teamId && teamId !== null;
         const isLoser = match.status === "done" && !isWinner;
         return (
@@ -62,6 +63,11 @@ function MatchCard({
           </div>
         );
       })}
+      {match.status === "done" && setsDetail(match, state.tournament) && (
+        <p className="px-1 pt-0.5 text-[10px] font-bold tabular-nums text-ink-500">
+          {setsDetail(match, state.tournament)}
+        </p>
+      )}
       {showReport && ready && match.status !== "done" && (
         <Link href={`/report/${match.id}`} className="mt-1 block rounded-lg bg-ball-500 py-1.5 text-center text-xs font-black text-court-950">
           結果入力

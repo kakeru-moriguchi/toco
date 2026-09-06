@@ -5,6 +5,7 @@ import { useTournamentState } from "@/lib/useTournamentState";
 import { computeAllStandings } from "@/lib/standings";
 import { TIEBREAKER_LABELS } from "@/lib/types";
 import { qualifyingLeagues, scoreText, sideName } from "@/lib/view";
+import { setsDetail } from "@/lib/score";
 import { StandingsTable } from "@/components/StandingsTable";
 import { tierRangeLabel } from "@/lib/tiers";
 import { EmptyBlock, ErrorBlock, LiveDot, LoadingBlock, PageShell } from "@/components/ui";
@@ -59,8 +60,15 @@ export default function StandingsPage() {
                       <span className="min-w-0 flex-1 truncate font-bold">
                         {sideName(m, "a", state.teams)}
                       </span>
-                      <span className="shrink-0 px-2 font-black tabular-nums text-court-800">
-                        {m.status === "done" ? scoreText(m) : "-"}
+                      <span className="shrink-0 px-2 text-center">
+                        <span className="block font-black tabular-nums text-court-800">
+                          {m.status === "done" ? scoreText(m, state) : "-"}
+                        </span>
+                        {m.status === "done" && setsDetail(m, state.tournament) && (
+                          <span className="block text-[10px] tabular-nums text-ink-500">
+                            {setsDetail(m, state.tournament)}
+                          </span>
+                        )}
                       </span>
                       <span className="min-w-0 flex-1 truncate text-right font-bold">
                         {sideName(m, "b", state.teams)}

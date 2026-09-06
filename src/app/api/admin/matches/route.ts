@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { clearResult, getState, getTournament, logMatchEvent, saveResult } from "@/lib/data";
-import { errorMessage, fail, ok, requireAdmin } from "@/lib/api";
+import { errorMessage, fail, ok, readSets, requireAdmin } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -25,12 +25,9 @@ export async function POST(req: NextRequest) {
     if (!id) return fail("対象の試合が指定されていません。");
 
     if (action === "result") {
-      await saveResult({
-        matchId: id,
-        scoreA: Number(body.scoreA),
-        scoreB: Number(body.scoreB),
-        actor: "admin",
-      });
+      const sets = readSets(body);
+      if (sets.length === 0) return fail("スコアを入力してください。");
+      await saveResult({ matchId: id, sets, actor: "admin" });
     } else if (action === "clear") {
       await clearResult(id);
     } else if (action === "status") {

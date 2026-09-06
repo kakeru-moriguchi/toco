@@ -18,7 +18,9 @@ create table if not exists tournaments (
   -- 大会設計（16チーム以外でも使えるように管理画面から変更可能）
   league_count       int         not null default 4,
   teams_per_league   int         not null default 4,
-  point_target       int         not null default 11,   -- 何点先取か（入力バリデーションの目安）
+  point_target       int         not null default 11,   -- 1セット何点先取か（表示用の目安）
+  -- 何セット先取か。1 = 1セットのみ / 2 = 3セット中2セット先取
+  sets_to_win        int         not null default 1,
   -- 進行表の自動割り当て設定
   start_time         text        not null default '09:00',
   minutes_per_match  int         not null default 20,
@@ -102,6 +104,9 @@ create table if not exists matches (
   team_b_label  text not null default '',
 
   -- 結果
+  -- 各セットのスコア: [{"a":11,"b":7},{"a":9,"b":11}]
+  sets           jsonb not null default '[]'::jsonb,
+  -- 全セットの合計点。順位表の得点・失点に使う
   score_a        int,
   score_b        int,
   winner_team_id uuid references teams(id) on delete set null,

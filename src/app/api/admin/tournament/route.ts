@@ -34,6 +34,7 @@ export async function PATCH(req: NextRequest) {
       ["league_count", 1, 26],
       ["teams_per_league", 2, 20],
       ["point_target", 1, 99],
+      ["sets_to_win", 1, 5],
       ["minutes_per_match", 5, 180],
     ];
     for (const [field, min, max] of intFields) {

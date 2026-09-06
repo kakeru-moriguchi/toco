@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useTournamentState } from "@/lib/useTournamentState";
 import { matchGroupName, sideName, sortMatches } from "@/lib/view";
+import { headlineSide, setsDetail } from "@/lib/score";
 import { EmptyBlock, ErrorBlock, LiveDot, LoadingBlock, PageShell, StatusBadge } from "@/components/ui";
 import type { Match, TournamentState } from "@/lib/types";
 
@@ -65,7 +66,7 @@ function MatchRow({
         <div>
           {(["a", "b"] as const).map((slot) => {
             const teamId = slot === "a" ? match.team_a_id : match.team_b_id;
-            const score = slot === "a" ? match.score_a : match.score_b;
+            const score = headlineSide(match, slot, state.tournament);
             const isWinner = done && match.winner_team_id !== null && match.winner_team_id === teamId;
             return (
               <div key={slot}>
@@ -95,6 +96,12 @@ function MatchRow({
             );
           })}
         </div>
+
+        {done && setsDetail(match, state.tournament) && (
+          <p className="mt-1 text-[11px] font-bold tabular-nums text-ink-500">
+            {setsDetail(match, state.tournament)}
+          </p>
+        )}
       </div>
 
       {canReport && (

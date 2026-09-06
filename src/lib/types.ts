@@ -1,4 +1,7 @@
 export type Phase = "setup" | "league" | "bracket" | "finished";
+
+/** 1セット分のスコア */
+export type SetScore = { a: number; b: number };
 export type Stage = "league" | "bracket";
 export type MatchStatus = "pending" | "in_progress" | "done";
 export type Slot = "a" | "b";
@@ -102,6 +105,8 @@ export type Tournament = {
   league_count: number;
   teams_per_league: number;
   point_target: number;
+  /** 何セット先取か。1 = 1セットのみ、2 = 3セット中2セット先取 */
+  sets_to_win: number;
   start_time: string;
   minutes_per_match: number;
   courts: string[];
@@ -146,6 +151,9 @@ export type Match = {
   team_b_id: string | null;
   team_a_label: string;
   team_b_label: string;
+  /** 各セットのスコア。[{a:11,b:7},{a:9,b:11},{a:11,b:5}] */
+  sets: SetScore[];
+  /** 全セットの合計点。順位表の得点・失点に使う */
   score_a: number | null;
   score_b: number | null;
   winner_team_id: string | null;

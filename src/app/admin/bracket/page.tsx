@@ -230,17 +230,15 @@ export default function AdminBracketPage() {
                         </span>
                       </div>
                       <ResultEditor
-                        key={`${m.id}-${m.score_a}-${m.score_b}-${m.status}-${m.team_a_id}-${m.team_b_id}`}
+                        key={`${m.id}-${m.status}-${m.team_a_id}-${m.team_b_id}-${JSON.stringify(m.sets)}`}
                         match={m}
                         teamA={sideName(m, "a", state.teams)}
                         teamB={sideName(m, "b", state.teams)}
                         busy={busy}
-                        onSave={(a, b) =>
-                          callMatch(
-                            { action: "result", id: m.id, scoreA: a, scoreB: b },
-                            "結果を保存しました"
-                          )
-                        }
+                        setsToWin={state.tournament.sets_to_win}
+                        onSave={(sets) => {
+                          callMatch({ action: "result", id: m.id, sets }, "結果を保存しました");
+                        }}
                         onClear={() => callMatch({ action: "clear", id: m.id }, "結果を取り消しました")}
                         onStatus={(status) =>
                           callMatch({ action: "status", id: m.id, status }, "状態を変更しました")

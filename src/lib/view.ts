@@ -1,4 +1,5 @@
 import { bracketRoundName } from "./bracket";
+import { headlineScore } from "./score";
 import type { League, Match, Slot, Team, TournamentState } from "./types";
 
 /** 表示用のちょっとした変換をまとめたもの */
@@ -113,7 +114,7 @@ export function formatDate(value: string | null): string {
   return `${d.getFullYear()}年${d.getMonth() + 1}月${d.getDate()}日(${week})`;
 }
 
-export function scoreText(match: Match): string {
-  if (match.score_a === null || match.score_b === null) return "";
-  return `${match.score_a} - ${match.score_b}`;
+/** 「2 - 1」「11 - 7」など、その試合の見出しスコア */
+export function scoreText(match: Match, state: TournamentState): string {
+  return headlineScore(match, state.tournament);
 }

@@ -45,6 +45,7 @@ export default function AdminTournamentPage() {
       league_count: t.league_count,
       teams_per_league: t.teams_per_league,
       point_target: t.point_target,
+      sets_to_win: t.sets_to_win,
       start_time: t.start_time,
       minutes_per_match: t.minutes_per_match,
     });
@@ -169,9 +170,26 @@ export default function AdminTournamentPage() {
                 <input id="tpl" type="number" min={2} max={20} className="field" value={Number(form.teams_per_league)} onChange={(e) => set("teams_per_league", Number(e.target.value))} />
               </div>
               <div>
-                <label className="label" htmlFor="pt">1試合の目標点（表示用）</label>
+                <label className="label" htmlFor="pt">1セットの目標点（表示用）</label>
                 <input id="pt" type="number" min={1} max={99} className="field" value={Number(form.point_target)} onChange={(e) => set("point_target", Number(e.target.value))} />
               </div>
+            </div>
+            <div>
+              <label className="label" htmlFor="stw">1試合のセット数</label>
+              <select
+                id="stw"
+                className="field sm:w-64"
+                value={Number(form.sets_to_win)}
+                onChange={(e) => set("sets_to_win", Number(e.target.value))}
+              >
+                <option value={1}>1セットのみ</option>
+                <option value={2}>3セット中2セット先取</option>
+                <option value={3}>5セット中3セット先取</option>
+              </select>
+              <p className="mt-1 text-xs leading-relaxed text-ink-500">
+                結果入力の画面にセットごとの入力欄が出ます。
+                勝敗は取ったセット数で決まり、順位表の得点・失点には<strong>全セットの合計点</strong>を使います。
+              </p>
             </div>
           </section>
 
