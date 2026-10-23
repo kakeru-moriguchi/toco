@@ -23,7 +23,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const action = String(body?.action ?? "");
     const id = String(body?.id ?? "");
-    if (!id) return fail("対象の試合が指定されていません。");
+    // 一括保存は各更新データの中に試合IDを持つため、トップレベルのIDは不要。
+    if (!id && action !== "bulk_schedule") return fail("対象の試合が指定されていません。");
 
     if (action === "result") {
       const sets = readSets(body);
