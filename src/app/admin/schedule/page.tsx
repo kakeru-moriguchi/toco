@@ -425,6 +425,48 @@ export default function AdminSchedulePage() {
                     >
                       ↓ 後へ
                     </button>
+                    {m.stage === "league" && m.tier_key === null && (
+                      <button
+                        className="btn-danger btn-sm ml-auto"
+                        disabled={
+                          busy ||
+                          m.status !== "pending" ||
+                          m.score_a !== null ||
+                          m.score_b !== null ||
+                          m.sets.length > 0
+                        }
+                        title={
+                          m.status === "pending" && m.score_a === null && m.score_b === null && m.sets.length === 0
+                            ? "この試合を削除"
+                            : "結果を取り消して待機中に戻すと削除できます"
+                        }
+                        onClick={async () => {
+                          const label =
+                            "第" +
+                            m.match_no +
+                            "試合「" +
+                            sideName(m, "a", state.teams) +
+                            " vs " +
+                            sideName(m, "b", state.teams) +
+                            "」";
+                          if (!confirm(label + "を削除しますか？\nこの操作は元に戻せません。")) return;
+                          const deleted = await call(
+                            "/api/admin/matches",
+                            { action: "delete", id: m.id },
+                            "試合を削除しました"
+                          );
+                          if (deleted) {
+                            setDrafts((current) => {
+                              const next = { ...current };
+                              delete next[m.id];
+                              return next;
+                            });
+                          }
+                        }}
+                      >
+                        削除
+                      </button>
+                    )}
                   </div>
                 </li>
               );

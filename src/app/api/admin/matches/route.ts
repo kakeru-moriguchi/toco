@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
  * 主催者による試合の編集
  * action:
  *   create        … 予選リーグの対戦カードを1試合ずつ作成
+ *   delete        … 待機中・結果未入力の予選リーグ試合を削除
  *   result        … 結果の入力・修正
  *   clear         … 結果の取り消し（待機中に戻す）
  *   status        … 進行状況の変更（待機中 / 試合中 / 終了）
@@ -78,6 +79,32 @@ export async function POST(req: NextRequest) {
         actor: "admin",
         payload: { league_id: leagueId, match_no: matchNo, scheduled_at: scheduledAt, court },
       });
+    } else if (action === "delete") {
+      const { data: match, error: findError } = await db
+        .from("matches")
+        .select("id, stage, tier_key, status, sets, score_a, score_b")
+        .eq("id", id)
+        .eq("tournament_id", tournament.id)
+        .maybeSingle();
+      if (findError) throw new Error(findError.message);
+      if (!match) return fail("削除する試合が見つかりません。画面を再読み込みしてください。");
+      if (match.stage !== "league" || match.tier_key !== null) {
+        return fail("決勝ラウンドの試合は、決勝ラウンド画面から管理してください。");
+      }
+      if (
+        match.status !== "pending" ||
+        match.score_a !== null ||
+        match.score_b !== null ||
+        (Array.isArray(match.sets) && match.sets.length > 0)
+      ) {
+        return fail("結果や進行状況が入っている試合です。先に結果を取り消して待機中に戻してください。");
+      }
+      const { error: deleteError } = await db
+        .from("matches")
+        .delete()
+        .eq("id", id)
+        .eq("tournament_id", tournament.id);
+      if (deleteError) throw new Error(deleteError.message);
     } else if (action === "result") {
       const sets = readSets(body);
       if (sets.length === 0) return fail("スコアを入力してください。");
