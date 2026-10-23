@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 /**
  * 主催者による試合の編集
  * action:
+ *   create        … 予選リーグの対戦カードを1試合ずつ作成
  *   result        … 結果の入力・修正
  *   clear         … 結果の取り消し（待機中に戻す）
  *   status        … 進行状況の変更（待機中 / 試合中 / 終了）
@@ -23,10 +24,61 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const action = String(body?.action ?? "");
     const id = String(body?.id ?? "");
-    // 一括保存は各更新データの中に試合IDを持つため、トップレベルのIDは不要。
-    if (!id && action !== "bulk_schedule") return fail("対象の試合が指定されていません。");
+    // 一括保存と新規作成は、トップレベルの既存試合IDを必要としない。
+    if (!id && !["create", "bulk_schedule"].includes(action)) return fail("対象の試合が指定されていません。");
 
-    if (action === "result") {
+    if (action === "create") {
+      const leagueId = String(body.league_id ?? "");
+      const teamAId = String(body.team_a_id ?? "");
+      const teamBId = String(body.team_b_id ?? "");
+      if (!leagueId) return fail("リーグを選んでください。");
+      if (!teamAId || !teamBId) return fail("対戦する2チームを選んでください。");
+      if (teamAId === teamBId) return fail("異なる2チームを選んでください。");
+
+      const matchNo = Math.trunc(Number(body.match_no));
+      if (!Number.isFinite(matchNo) || matchNo < 1 || matchNo > 9999) {
+        return fail("試合番号は1〜9999で入力してください。");
+      }
+      const scheduledAt = String(body.scheduled_at ?? "").trim();
+      if (scheduledAt && !/^\d{1,2}:\d{2}$/.test(scheduledAt)) {
+        return fail("時刻は 09:00 の形式で入力してください。");
+      }
+
+      const [{ data: league }, { data: teams }] = await Promise.all([
+        db.from("leagues").select("id").eq("id", leagueId).eq("tournament_id", tournament.id).is("tier_key", null).maybeSingle(),
+        db.from("teams").select("id, league_id").eq("tournament_id", tournament.id).in("id", [teamAId, teamBId]),
+      ]);
+      if (!league) return fail("選んだ予選リーグが見つかりません。画面を再読み込みしてください。");
+      if ((teams ?? []).length !== 2 || (teams ?? []).some((team) => team.league_id !== leagueId)) {
+        return fail("同じリーグに所属する2チームを選んでください。");
+      }
+
+      const court = String(body.court ?? "").trim().slice(0, 20);
+      const { data: created, error } = await db
+        .from("matches")
+        .insert({
+          tournament_id: tournament.id,
+          stage: "league",
+          league_id: leagueId,
+          match_no: matchNo,
+          scheduled_at: scheduledAt,
+          court,
+          status: "pending",
+          team_a_id: teamAId,
+          team_b_id: teamBId,
+        })
+        .select("id")
+        .single();
+      if (error) throw new Error(error.message);
+      await db.from("tournaments").update({ phase: "league" }).eq("id", tournament.id);
+      await logMatchEvent({
+        tournamentId: tournament.id,
+        matchId: created.id,
+        action: "manual_create",
+        actor: "admin",
+        payload: { league_id: leagueId, match_no: matchNo, scheduled_at: scheduledAt, court },
+      });
+    } else if (action === "result") {
       const sets = readSets(body);
       if (sets.length === 0) return fail("スコアを入力してください。");
       await saveResult({ matchId: id, sets, actor: "admin" });

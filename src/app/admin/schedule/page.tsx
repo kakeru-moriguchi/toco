@@ -15,6 +15,12 @@ export default function AdminSchedulePage() {
   const [startTime, setStartTime] = useState("");
   const [drafts, setDrafts] = useState<Record<string, { court?: string; scheduled_at?: string; match_no?: string }>>({});
   const [courtFilter, setCourtFilter] = useState<string>("all");
+  const [manualLeagueId, setManualLeagueId] = useState("");
+  const [manualTeamAId, setManualTeamAId] = useState("");
+  const [manualTeamBId, setManualTeamBId] = useState("");
+  const [manualMatchNo, setManualMatchNo] = useState("");
+  const [manualTime, setManualTime] = useState("");
+  const [manualCourt, setManualCourt] = useState("");
 
   const notify = (msg: string, tone: "ok" | "error" = "ok") => {
     setToast({ msg, tone });
@@ -61,6 +67,54 @@ export default function AdminSchedulePage() {
   };
 
   const allMatches = useMemo(() => (state ? sortMatches(state.matches) : []), [state]);
+  const qualifyingLeagueList = useMemo(
+    () => (state ? state.leagues.filter((league) => league.tier_key === null) : []),
+    [state]
+  );
+  const selectedLeagueId = manualLeagueId || qualifyingLeagueList[0]?.id || "";
+  const selectableTeams = useMemo(
+    () => (state ? state.teams.filter((team) => team.league_id === selectedLeagueId) : []),
+    [state, selectedLeagueId]
+  );
+  const nextMatchNo = useMemo(
+    () => allMatches.reduce((largest, match) => Math.max(largest, match.match_no), 0) + 1,
+    [allMatches]
+  );
+
+  const createManualMatch = async () => {
+    if (!selectedLeagueId) {
+      notify("先に「チーム・リーグ分け」でリーグを用意してください", "error");
+      return;
+    }
+    if (!manualTeamAId || !manualTeamBId) {
+      notify("対戦する2チームを選んでください", "error");
+      return;
+    }
+    if (manualTeamAId === manualTeamBId) {
+      notify("異なる2チームを選んでください", "error");
+      return;
+    }
+
+    const matchNo = manualMatchNo.trim() || String(nextMatchNo);
+    const saved = await call(
+      "/api/admin/matches",
+      {
+        action: "create",
+        league_id: selectedLeagueId,
+        team_a_id: manualTeamAId,
+        team_b_id: manualTeamBId,
+        match_no: matchNo,
+        scheduled_at: manualTime,
+        court: manualCourt || state?.tournament.courts[0] || "",
+      },
+      "第" + matchNo + "試合を作成しました"
+    );
+    if (saved) {
+      setManualTeamAId("");
+      setManualTeamBId("");
+      setManualMatchNo(String(Number(matchNo) + 1));
+    }
+  };
 
   /** コート名の一覧（進行表がコート別になったので、ここでも絞り込めるようにする） */
   const courtList = useMemo(() => {
@@ -127,11 +181,125 @@ export default function AdminSchedulePage() {
             </p>
           </section>
 
+          <section className="card space-y-3 border-2 border-court-300 p-4">
+            <div>
+              <h2 className="text-sm font-black text-court-800">対戦カードを最初から手動で作成</h2>
+              <p className="mt-1 text-xs leading-relaxed text-ink-600">
+                リーグと対戦する2チームを選び、試合番号・時刻・コートを指定して1試合ずつ追加できます。
+              </p>
+            </div>
+
+            <label className="text-xs font-bold text-court-800">
+              リーグ
+              <select
+                className="field mt-1"
+                value={selectedLeagueId}
+                onChange={(e) => {
+                  setManualLeagueId(e.target.value);
+                  setManualTeamAId("");
+                  setManualTeamBId("");
+                }}
+              >
+                {qualifyingLeagueList.length === 0 && <option value="">リーグがありません</option>}
+                {qualifyingLeagueList.map((league) => (
+                  <option key={league.id} value={league.id}>
+                    {league.name}リーグ
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <div className="grid gap-2 sm:grid-cols-[1fr_auto_1fr] sm:items-end">
+              <label className="text-xs font-bold text-court-800">
+                チームA
+                <select
+                  className="field mt-1"
+                  value={manualTeamAId}
+                  onChange={(e) => setManualTeamAId(e.target.value)}
+                >
+                  <option value="">選んでください</option>
+                  {selectableTeams.map((team) => (
+                    <option key={team.id} value={team.id} disabled={team.id === manualTeamBId}>
+                      {team.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <span className="hidden pb-3 text-center text-xs font-black text-ink-500 sm:block">vs</span>
+              <label className="text-xs font-bold text-court-800">
+                チームB
+                <select
+                  className="field mt-1"
+                  value={manualTeamBId}
+                  onChange={(e) => setManualTeamBId(e.target.value)}
+                >
+                  <option value="">選んでください</option>
+                  {selectableTeams.map((team) => (
+                    <option key={team.id} value={team.id} disabled={team.id === manualTeamAId}>
+                      {team.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {selectedLeagueId && selectableTeams.length < 2 && (
+              <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
+                このリーグにはチームが2組以上ありません。「チーム・リーグ分け」で先に所属を設定してください。
+              </p>
+            )}
+
+            <div className="grid grid-cols-3 gap-2">
+              <label className="text-xs font-bold text-court-800">
+                試合番号
+                <input
+                  className="field mt-1 h-11 text-center tabular-nums"
+                  inputMode="numeric"
+                  placeholder={String(nextMatchNo)}
+                  value={manualMatchNo}
+                  onChange={(e) => setManualMatchNo(e.target.value.replace(/[^0-9]/g, ""))}
+                />
+              </label>
+              <label className="text-xs font-bold text-court-800">
+                時刻
+                <input
+                  className="field mt-1 h-11 text-center"
+                  type="time"
+                  value={manualTime}
+                  onChange={(e) => setManualTime(e.target.value)}
+                />
+              </label>
+              <label className="text-xs font-bold text-court-800">
+                コート
+                <input
+                  className="field mt-1 h-11 text-center"
+                  list="manual-court-options"
+                  placeholder={state.tournament.courts[0] || "1"}
+                  value={manualCourt}
+                  onChange={(e) => setManualCourt(e.target.value)}
+                />
+                <datalist id="manual-court-options">
+                  {state.tournament.courts.map((court) => (
+                    <option key={court} value={court} />
+                  ))}
+                </datalist>
+              </label>
+            </div>
+
+            <button
+              className="btn-primary w-full"
+              disabled={busy || selectableTeams.length < 2 || !manualTeamAId || !manualTeamBId}
+              onClick={createManualMatch}
+            >
+              {busy ? "作成中…" : "この対戦カードを追加"}
+            </button>
+          </section>
+
           <section className="card space-y-3 border border-court-200 p-4">
             <div>
-              <h2 className="text-sm font-black text-court-800">進行表を手動で入力</h2>
+              <h2 className="text-sm font-black text-court-800">作成済みの進行表を手動で変更</h2>
               <p className="mt-1 text-xs leading-relaxed text-ink-600">
-                下の試合ごとに、試合番号・開始時刻・コートを直接入力できます。
+                下の試合ごとに、試合番号・開始時刻・コートを直接変更できます。
                 変更した項目はまとめて保存できます。
               </p>
             </div>
