@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AdminShell, Toast } from "@/components/AdminShell";
 import { useTournamentState } from "@/lib/useTournamentState";
-import { adminPatch } from "@/lib/adminApi";
+import { adminPatch, adminPost } from "@/lib/adminApi";
 import { LoadingBlock } from "@/components/ui";
 import { describeTierAllocation, nextTierKey, validateTiers } from "@/lib/tiers";
 import {
@@ -33,6 +33,9 @@ export default function AdminTournamentPage() {
   const [tiers, setTiers] = useState<BracketTier[]>([]);
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "error" } | null>(null);
   const [saving, setSaving] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetConfirmation, setResetConfirmation] = useState("");
+  const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
     if (!state || form) return;
@@ -126,6 +129,36 @@ export default function AdminTournamentPage() {
     } finally {
       setSaving(false);
       setTimeout(() => setToast(null), 2500);
+    }
+  };
+
+  const resetTournament = async () => {
+    if (!state || resetConfirmation !== state.tournament.name) return;
+    setResetting(true);
+    try {
+      await adminPost("/api/admin/actions", {
+        action: "reset_tournament",
+        confirm: resetConfirmation,
+      });
+      setForm((current) => ({
+        ...(current ?? {}),
+        name: "ピックルボール大会",
+        event_date: "",
+        venue: "",
+        note: "",
+      }));
+      await refresh();
+      setResetOpen(false);
+      setResetConfirmation("");
+      setToast({ msg: "大会データをリセットしました", tone: "ok" });
+    } catch (e) {
+      setToast({
+        msg: e instanceof Error ? e.message : "リセットできませんでした。もう一度お試しください。",
+        tone: "error",
+      });
+    } finally {
+      setResetting(false);
+      setTimeout(() => setToast(null), 4000);
     }
   };
 
@@ -390,10 +423,78 @@ export default function AdminTournamentPage() {
             </div>
           </section>
 
+          <section className="card space-y-3 border border-red-200 p-4">
+            <div>
+              <h2 className="text-sm font-black text-red-800">大会データの一括リセット</h2>
+              <p className="mt-1 text-xs leading-relaxed text-ink-600">
+                次の大会を始めるために、大会名・開催日・会場・お知らせを初期化し、
+                参加チーム・メンバー・リーグ分け・全試合・結果・変更履歴を削除します。
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-ink-500">
+                リーグ数、セット数、コート、順位ルール、順位別ラウンドの設定は残ります。
+              </p>
+            </div>
+            <button className="btn-danger w-full" onClick={() => setResetOpen(true)}>
+              大会データをリセットする
+            </button>
+          </section>
+
           <div className="sticky bottom-4">
             <button className="btn-primary w-full shadow-lg" onClick={save} disabled={saving || Boolean(tierError)}>
               {saving ? "保存中…" : "設定を保存する"}
             </button>
+          </div>
+        </div>
+      )}
+      {resetOpen && state && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-3 sm:items-center"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reset-title"
+        >
+          <div className="w-full max-w-md space-y-4 rounded-2xl bg-white p-5 shadow-xl">
+            <div>
+              <h2 id="reset-title" className="text-lg font-black text-red-800">
+                本当にリセットしますか？
+              </h2>
+              <p className="mt-2 text-sm leading-relaxed text-ink-700">
+                参加チームとすべての試合結果は元に戻せません。確認のため、現在の大会名を入力してください。
+              </p>
+            </div>
+            <div className="rounded-xl bg-red-50 px-3 py-2 text-sm font-bold text-red-800 break-words">
+              {state.tournament.name}
+            </div>
+            <div>
+              <label className="label" htmlFor="reset-confirmation">現在の大会名</label>
+              <input
+                id="reset-confirmation"
+                className="field"
+                value={resetConfirmation}
+                onChange={(e) => setResetConfirmation(e.target.value)}
+                autoComplete="off"
+                autoFocus
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                className="btn-ghost"
+                onClick={() => {
+                  setResetOpen(false);
+                  setResetConfirmation("");
+                }}
+                disabled={resetting}
+              >
+                やめる
+              </button>
+              <button
+                className="btn-danger bg-red-700 text-white hover:bg-red-800"
+                onClick={resetTournament}
+                disabled={resetting || resetConfirmation !== state.tournament.name}
+              >
+                {resetting ? "リセット中…" : "すべて削除する"}
+              </button>
+            </div>
           </div>
         </div>
       )}
