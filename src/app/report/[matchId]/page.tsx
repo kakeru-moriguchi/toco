@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTournamentState } from "@/lib/useTournamentState";
 import { matchGroupName, sideName } from "@/lib/view";
-import { matchSets, maxSets, validateSets } from "@/lib/score";
+import { matchSets, maxSets, setsWon, totalPoints, validateSets } from "@/lib/score";
 import { EmptyBlock, ErrorBlock, LoadingBlock, PageShell } from "@/components/ui";
 import type { SetScore } from "@/lib/types";
 
@@ -96,6 +96,8 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
     [inputs]
   );
   const check = useMemo(() => validateSets(sets, setsToWin), [sets, setsToWin]);
+  const enteredSetsWon = useMemo(() => setsWon(sets), [sets]);
+  const enteredPoints = useMemo(() => totalPoints(sets), [sets]);
 
   const submit = async () => {
     setSubmitting(true);
@@ -189,12 +191,15 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
           <p className="text-center text-sm font-bold text-ink-700">内容を確認してください</p>
 
           <div className="rounded-2xl bg-court-50 p-4">
+            <p className="mb-2 text-center text-xs font-black text-ink-500">
+              {setsToWin === 1 ? "点数" : "セット数"}
+            </p>
             <div className="flex items-center justify-between gap-3">
               <span className="min-w-0 flex-1 break-words text-base font-black text-court-900">
                 {teamA}
               </span>
               <span className="shrink-0 text-3xl font-black tabular-nums text-court-900">
-                {check.setsWon.a}
+                {setsToWin === 1 ? check.totalPoints.a : check.setsWon.a}
               </span>
             </div>
             <div className="my-2 h-px bg-court-200" />
@@ -203,12 +208,15 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
                 {teamB}
               </span>
               <span className="shrink-0 text-3xl font-black tabular-nums text-court-900">
-                {check.setsWon.b}
+                {setsToWin === 1 ? check.totalPoints.b : check.setsWon.b}
               </span>
             </div>
             {setsToWin > 1 && (
               <>
                 <div className="my-2 h-px bg-court-200" />
+                <p className="mb-2 text-center text-sm font-black text-court-800">
+                  合計点 {check.totalPoints.a} - {check.totalPoints.b}
+                </p>
                 <ul className="space-y-1">
                   {sets.map((s, i) => (
                     <li key={i} className="flex items-center gap-2 text-sm">
@@ -224,7 +232,9 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
           </div>
 
           <p className="text-center text-base font-black text-court-800">
-            {teamA} {check.setsWon.a} - {check.setsWon.b} {teamB}
+            {teamA}{" "}
+            {setsToWin === 1 ? check.totalPoints.a : check.setsWon.a} -{" "}
+            {setsToWin === 1 ? check.totalPoints.b : check.setsWon.b} {teamB}
             <br />
             <span className="text-sm font-bold text-ink-700">勝ち：{winnerName}</span>
           </p>
@@ -278,6 +288,7 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
         </div>
 
         <div className="space-y-2">
+          <p className="text-xs font-bold text-ink-600">各セットの点数を入力してください</p>
           {inputs.map((v, i) => (
             <SetRow
               key={i}
@@ -288,6 +299,23 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
             />
           ))}
         </div>
+
+        {sets.length > 0 && (
+          <div className="grid grid-cols-2 gap-2 rounded-xl bg-court-50 p-3 text-center">
+            <div>
+              <p className="text-[11px] font-bold text-ink-500">セット数</p>
+              <p className="text-lg font-black tabular-nums text-court-800">
+                {enteredSetsWon.a} - {enteredSetsWon.b}
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] font-bold text-ink-500">合計点</p>
+              <p className="text-lg font-black tabular-nums text-court-800">
+                {enteredPoints.a} - {enteredPoints.b}
+              </p>
+            </div>
+          </div>
+        )}
 
         {setsToWin > 1 && (
           <p className="rounded-xl bg-court-50 px-3 py-2 text-xs leading-relaxed text-ink-700">

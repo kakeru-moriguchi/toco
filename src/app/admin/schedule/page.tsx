@@ -21,16 +21,42 @@ export default function AdminSchedulePage() {
     setTimeout(() => setToast(null), 3000);
   };
 
-  const call = async (path: string, body: unknown, message: string) => {
+  const call = async (path: string, body: unknown, message: string): Promise<boolean> => {
     setBusy(true);
     try {
       await adminPost(path, body);
       await refresh();
       notify(message);
+      return true;
     } catch (e) {
       notify(e instanceof Error ? e.message : "失敗しました", "error");
+      return false;
     } finally {
       setBusy(false);
+    }
+  };
+
+  const saveDrafts = async (ids?: string[]) => {
+    const targets = ids ?? Object.keys(drafts);
+    const updates = targets.flatMap((id) => {
+      const draft = drafts[id];
+      return draft ? [{ id, ...draft }] : [];
+    });
+    if (updates.length === 0) {
+      notify("変更した項目がありません", "error");
+      return;
+    }
+    const saved = await call(
+      "/api/admin/matches",
+      { action: "bulk_schedule", updates },
+      updates.length === 1 ? "保存しました" : `${updates.length}試合をまとめて保存しました`
+    );
+    if (saved) {
+      setDrafts((current) => {
+        const next = { ...current };
+        targets.forEach((id) => delete next[id]);
+        return next;
+      });
     }
   };
 
@@ -99,6 +125,25 @@ export default function AdminSchedulePage() {
               参加者の進行表は<strong>コート別の順番</strong>で表示されます（予定時刻は表示されません）。
               下の「時刻」は主催者の手元用です。空欄でも問題ありません。
             </p>
+          </section>
+
+          <section className="card space-y-3 border border-court-200 p-4">
+            <div>
+              <h2 className="text-sm font-black text-court-800">進行表を手動で入力</h2>
+              <p className="mt-1 text-xs leading-relaxed text-ink-600">
+                下の試合ごとに、試合番号・開始時刻・コートを直接入力できます。
+                変更した項目はまとめて保存できます。
+              </p>
+            </div>
+            <button
+              className="btn-primary w-full"
+              disabled={busy || Object.keys(drafts).length === 0}
+              onClick={() => saveDrafts()}
+            >
+              {Object.keys(drafts).length === 0
+                ? "変更するとまとめて保存できます"
+                : `変更した ${Object.keys(drafts).length}試合をまとめて保存`}
+            </button>
           </section>
 
           {courtList.length > 0 && (
@@ -180,22 +225,10 @@ export default function AdminSchedulePage() {
                   <div className="flex flex-wrap gap-2">
                     <button
                       className="btn-primary btn-sm"
-                      disabled={busy}
-                      onClick={() =>
-                        call(
-                          "/api/admin/matches",
-                          {
-                            action: "schedule",
-                            id: m.id,
-                            match_no: d.match_no ?? m.match_no,
-                            scheduled_at: d.scheduled_at ?? m.scheduled_at,
-                            court: d.court ?? m.court,
-                          },
-                          "保存しました"
-                        )
-                      }
+                      disabled={busy || !drafts[m.id]}
+                      onClick={() => saveDrafts([m.id])}
                     >
-                      保存
+                      この試合を保存
                     </button>
                     {/* コートで絞り込んでいるときは、そのコート内の隣と入れ替える */}
                     <button
@@ -234,6 +267,14 @@ export default function AdminSchedulePage() {
               </li>
             )}
           </ul>
+
+          {Object.keys(drafts).length > 0 && (
+            <div className="sticky bottom-4 z-20">
+              <button className="btn-primary w-full shadow-lg" disabled={busy} onClick={() => saveDrafts()}>
+                {busy ? "保存中…" : `変更した ${Object.keys(drafts).length}試合をまとめて保存`}
+              </button>
+            </div>
+          )}
         </div>
       )}
       <Toast message={toast?.msg ?? null} tone={toast?.tone} />

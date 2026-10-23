@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
  *   clear         … 結果の取り消し（待機中に戻す）
  *   status        … 進行状況の変更（待機中 / 試合中 / 終了）
  *   schedule      … 試合番号 / 時間 / コート の変更
+ *   bulk_schedule … 複数試合の試合番号 / 時間 / コートをまとめて変更
  *   move          … 進行順を1つ上/下へ入れ替え
  */
 export async function POST(req: NextRequest) {
@@ -48,6 +49,41 @@ export async function POST(req: NextRequest) {
         actor: "admin",
         payload: { status },
       });
+    } else if (action === "bulk_schedule") {
+      const updates = Array.isArray(body.updates) ? body.updates : [];
+      if (updates.length === 0) return fail("変更した試合がありません。");
+      if (updates.length > 300) return fail("一度に保存できるのは300試合までです。");
+
+      const prepared: { matchId: string; patch: Record<string, unknown> }[] = [];
+      for (const item of updates) {
+        const matchId = String(item?.id ?? "");
+        if (!matchId) return fail("対象の試合が指定されていません。");
+
+        const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
+        if (typeof item.court === "string") patch.court = item.court.trim().slice(0, 20);
+        if (typeof item.scheduled_at === "string") {
+          const v = item.scheduled_at.trim();
+          if (v && !/^\d{1,2}:\d{2}$/.test(v)) return fail("時刻は 09:00 の形式で入力してください。");
+          patch.scheduled_at = v;
+        }
+        if (item.match_no !== undefined) {
+          const n = Math.trunc(Number(item.match_no));
+          if (!Number.isFinite(n) || n < 0 || n > 9999) return fail("試合番号が不正です。");
+          patch.match_no = n;
+        }
+
+        prepared.push({ matchId, patch });
+      }
+
+      // 全行を検証してから保存し、入力ミスで途中まで更新されるのを防ぐ。
+      for (const { matchId, patch } of prepared) {
+        const { error } = await db
+          .from("matches")
+          .update(patch)
+          .eq("id", matchId)
+          .eq("tournament_id", tournament.id);
+        if (error) throw new Error(error.message);
+      }
     } else if (action === "schedule") {
       const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
       if (typeof body.court === "string") patch.court = body.court.trim().slice(0, 20);

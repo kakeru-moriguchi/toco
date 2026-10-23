@@ -95,7 +95,10 @@ export async function POST(req: NextRequest) {
       if (reset.error) throw new Error(reset.error.message);
 
       // 大会形式の設定は残し、空の予選リーグだけを作り直す。
-      await ensureLeagues(tournament.id, tournament.league_count);
+      const recreatedLeagues = await ensureLeagues(tournament.id, tournament.league_count);
+      if (recreatedLeagues.length !== tournament.league_count) {
+        throw new Error("空の予選リーグを作り直せませんでした。もう一度リセットを実行してください。");
+      }
     } else if (action === "auto_schedule") {
       const phase = body.stage === "bracket" || body.phase === "finals" ? "finals" : "qualifying";
       await autoAssignSchedule(tournament.id, phase, {
