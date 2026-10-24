@@ -5,7 +5,7 @@ import type { Match, SetScore, Tournament } from "./types";
  * ------------------------------------------------------------
  * 「何セット先取か」は大会設定（tournaments.sets_to_win）で決まる。
  *   1 … 1セットのみ（従来どおり）
- *   2 … 3セット中2セット先取
+ *   2 … 3ゲームすべて実施（2ゲーム以上取った側が勝者）
  *   3 … 5セット中3セット先取
  *
  * 勝敗は「取ったセット数」で決まり、
@@ -16,6 +16,11 @@ import type { Match, SetScore, Tournament } from "./types";
 /** 何セットまで行う可能性があるか（2セット先取なら3セット） */
 export function maxSets(setsToWin: number): number {
   return Math.max(1, setsToWin) * 2 - 1;
+}
+
+/** 3ゲーム制は得失点集計のため、2勝後も第3ゲームまで必ず行う。 */
+export function playsAllGames(setsToWin: number): boolean {
+  return Math.max(1, setsToWin) === 2;
 }
 
 /** DBから来た値を安全な SetScore[] に整える */
@@ -78,6 +83,7 @@ export type SetsValidation = {
 export function validateSets(sets: SetScore[], setsToWin: number): SetsValidation {
   const need = Math.max(1, setsToWin);
   const limit = maxSets(need);
+  const fixedGames = playsAllGames(need);
   const empty = { winner: null, setsWon: { a: 0, b: 0 }, totalPoints: { a: 0, b: 0 } };
 
   if (sets.length === 0) {
@@ -85,6 +91,9 @@ export function validateSets(sets: SetScore[], setsToWin: number): SetsValidatio
   }
   if (sets.length > limit) {
     return { ok: false, error: `セットは${limit}セットまでです。`, ...empty };
+  }
+  if (fixedGames && sets.length < limit) {
+    return { ok: false, error: `第1〜第${limit}ゲームの点数をすべて入力してください。`, ...empty };
   }
 
   let a = 0;
@@ -99,12 +108,12 @@ export function validateSets(sets: SetScore[], setsToWin: number): SetsValidatio
         error:
           need === 1
             ? "同点では登録できません。どちらかが勝った状態で入力してください。"
-            : `第${i + 1}セットが同点です。どちらかが勝った点数を入力してください。`,
+            : `第${i + 1}${fixedGames ? "ゲーム" : "セット"}が同点です。どちらかが勝った点数を入力してください。`,
         ...empty,
       };
     }
     // すでに決着しているのに、さらにセットが入力されている
-    if (a >= need || b >= need) {
+    if (!fixedGames && (a >= need || b >= need)) {
       return {
         ok: false,
         error: `${need}セット先取なので、第${i + 1}セットは不要です。空欄にしてください。`,

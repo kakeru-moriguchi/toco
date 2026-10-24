@@ -216,12 +216,12 @@ export default function AdminTournamentPage() {
                 onChange={(e) => set("sets_to_win", Number(e.target.value))}
               >
                 <option value={1}>1セットのみ</option>
-                <option value={2}>3セット中2セット先取</option>
+                <option value={2}>3ゲームすべて実施（2勝で勝利）</option>
                 <option value={3}>5セット中3セット先取</option>
               </select>
               <p className="mt-1 text-xs leading-relaxed text-ink-500">
-                結果入力の画面にセットごとの入力欄が出ます。
-                勝敗は取ったセット数で決まり、順位表の得点・失点には<strong>全セットの合計点</strong>を使います。
+                「3ゲームすべて実施」では、先に2勝しても第3ゲームまで入力します。
+                勝敗は取ったゲーム数で決まり、順位表の得点・失点には<strong>全ゲームの合計点</strong>を使います。
               </p>
             </div>
           </section>

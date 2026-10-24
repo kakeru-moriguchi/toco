@@ -105,7 +105,7 @@ export type Tournament = {
   league_count: number;
   teams_per_league: number;
   point_target: number;
-  /** 何セット先取か。1 = 1セットのみ、2 = 3セット中2セット先取 */
+  /** 試合形式。1 = 1セットのみ、2 = 3ゲームすべて実施、3 = 5セット中3セット先取 */
   sets_to_win: number;
   start_time: string;
   minutes_per_match: number;

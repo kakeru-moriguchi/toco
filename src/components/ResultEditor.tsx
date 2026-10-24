@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { matchSets, maxSets, validateSets } from "@/lib/score";
+import { matchSets, maxSets, playsAllGames, validateSets } from "@/lib/score";
 import type { Match, SetScore } from "@/lib/types";
 
 /** 管理画面用の結果入力・修正フォーム（リーグ戦・トーナメント共通） */
@@ -27,6 +27,7 @@ export function ResultEditor({
 }) {
   const need = Math.max(1, setsToWin);
   const limit = maxSets(need);
+  const fixedGames = playsAllGames(need);
   const ready = Boolean(match.team_a_id && match.team_b_id);
 
   const [inputs, setInputs] = useState<{ a: string; b: string }[]>(() => {
@@ -58,12 +59,12 @@ export function ResultEditor({
       {inputs.map((v, i) => (
         <div key={i} className="flex items-center gap-2">
           <span className="w-14 shrink-0 text-xs font-bold text-court-800">
-            {need === 1 ? "スコア" : `第${i + 1}`}
+            {need === 1 ? "スコア" : `第${i + 1}${fixedGames ? "G" : ""}`}
           </span>
           <input
             className="field h-11 flex-1 text-center text-lg font-black tabular-nums"
             inputMode="numeric"
-            aria-label={`${teamA} 第${i + 1}セットの得点`}
+            aria-label={`${teamA} 第${i + 1}${fixedGames ? "ゲーム" : "セット"}の得点`}
             value={v.a}
             disabled={!ready}
             onChange={(e) =>
@@ -74,7 +75,7 @@ export function ResultEditor({
           <input
             className="field h-11 flex-1 text-center text-lg font-black tabular-nums"
             inputMode="numeric"
-            aria-label={`${teamB} 第${i + 1}セットの得点`}
+            aria-label={`${teamB} 第${i + 1}${fixedGames ? "ゲーム" : "セット"}の得点`}
             value={v.b}
             disabled={!ready}
             onChange={(e) =>
@@ -86,6 +87,11 @@ export function ResultEditor({
 
       {!ready && (
         <p className="text-xs text-ink-500">対戦チームが未確定のため、まだ結果を入力できません。</p>
+      )}
+      {ready && fixedGames && (
+        <p className="rounded-lg bg-court-50 px-2 py-1.5 text-xs font-bold text-court-800">
+          得失点集計のため、勝敗が決まっても第3ゲームまで入力してください。
+        </p>
       )}
       {ready && need > 1 && check.setsWon.a + check.setsWon.b > 0 && (
         <p className="text-xs font-bold text-court-800">

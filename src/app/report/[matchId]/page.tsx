@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTournamentState } from "@/lib/useTournamentState";
 import { matchGroupName, sideName } from "@/lib/view";
-import { matchSets, maxSets, setsWon, totalPoints, validateSets } from "@/lib/score";
+import { matchSets, maxSets, playsAllGames, setsWon, totalPoints, validateSets } from "@/lib/score";
 import { EmptyBlock, ErrorBlock, LoadingBlock, PageShell } from "@/components/ui";
 import type { SetScore } from "@/lib/types";
 
@@ -71,6 +71,7 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
   );
   const setsToWin = Math.max(1, state?.tournament.sets_to_win ?? 1);
   const limit = maxSets(setsToWin);
+  const fixedGames = playsAllGames(setsToWin);
 
   // すでに結果がある場合は、その値を初期表示にする（修正しやすくするため）
   useEffect(() => {
@@ -142,7 +143,7 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
     );
   }
 
-  const setLabel = (i: number) => (setsToWin === 1 ? "スコア" : `第${i + 1}セット`);
+  const setLabel = (i: number) => (setsToWin === 1 ? "スコア" : `第${i + 1}${fixedGames ? "ゲーム" : "セット"}`);
   const detailText = sets.map((s) => `${s.a}-${s.b}`).join(" / ");
   const winnerName = check.winner === "a" ? teamA : teamB;
 
@@ -192,7 +193,7 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
 
           <div className="rounded-2xl bg-court-50 p-4">
             <p className="mb-2 text-center text-xs font-black text-ink-500">
-              {setsToWin === 1 ? "点数" : "セット数"}
+              {setsToWin === 1 ? "点数" : fixedGames ? "ゲーム勝数" : "セット数"}
             </p>
             <div className="flex items-center justify-between gap-3">
               <span className="min-w-0 flex-1 break-words text-base font-black text-court-900">
@@ -288,7 +289,9 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
         </div>
 
         <div className="space-y-2">
-          <p className="text-xs font-bold text-ink-600">各セットの点数を入力してください</p>
+          <p className="text-xs font-bold text-ink-600">
+            {fixedGames ? "3ゲームすべての点数を入力してください" : "各セットの点数を入力してください"}
+          </p>
           {inputs.map((v, i) => (
             <SetRow
               key={i}
@@ -303,7 +306,7 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
         {sets.length > 0 && (
           <div className="grid grid-cols-2 gap-2 rounded-xl bg-court-50 p-3 text-center">
             <div>
-              <p className="text-[11px] font-bold text-ink-500">セット数</p>
+              <p className="text-[11px] font-bold text-ink-500">{fixedGames ? "ゲーム勝数" : "セット数"}</p>
               <p className="text-lg font-black tabular-nums text-court-800">
                 {enteredSetsWon.a} - {enteredSetsWon.b}
               </p>
@@ -317,7 +320,17 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
           </div>
         )}
 
-        {setsToWin > 1 && (
+        {fixedGames ? (
+          <p className="rounded-xl bg-court-50 px-3 py-2 text-xs leading-relaxed text-ink-700">
+            得失点集計のため、先に2勝しても<strong>第3ゲームまで必ず入力</strong>してください。
+            3ゲームの合計点が順位表の得点・失点に反映されます。
+            {check.setsWon.a + check.setsWon.b > 0 && (
+              <span className="mt-1 block font-bold text-court-800">
+                現在 {check.setsWon.a} - {check.setsWon.b}
+              </span>
+            )}
+          </p>
+        ) : setsToWin > 1 ? (
           <p className="rounded-xl bg-court-50 px-3 py-2 text-xs leading-relaxed text-ink-700">
             {setsToWin}セット先取です。決着したら残りのセットは<strong>空欄のまま</strong>で送信してください。
             {check.setsWon.a + check.setsWon.b > 0 && (
@@ -326,7 +339,7 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
               </span>
             )}
           </p>
-        )}
+        ) : null}
 
         {sets.length > 0 && !check.ok && check.error && (
           <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm font-bold text-amber-800">
