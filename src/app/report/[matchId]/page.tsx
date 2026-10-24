@@ -60,6 +60,7 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
   const { state, loading, error, refresh } = useTournamentState();
 
   const [inputs, setInputs] = useState<SetInput[]>([]);
+  const [setCount, setSetCount] = useState<SetInput>({ a: "", b: "" });
   const [step, setStep] = useState<"input" | "confirm" | "done">("input");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -82,6 +83,10 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
         existing[i] ? { a: String(existing[i].a), b: String(existing[i].b) } : { a: "", b: "" }
       )
     );
+    const won = setsWon(existing);
+    setSetCount(
+      existing.length > 0 ? { a: String(won.a), b: String(won.b) } : { a: "", b: "" }
+    );
     setInitialized(true);
   }, [match, state, initialized, limit]);
 
@@ -98,6 +103,12 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
   );
   const check = useMemo(() => validateSets(sets, setsToWin), [sets, setsToWin]);
   const enteredSetsWon = useMemo(() => setsWon(sets), [sets]);
+  const setCountComplete = setCount.a !== "" && setCount.b !== "";
+  const setCountMatches =
+    setsToWin === 1 ||
+    (setCountComplete &&
+      Number(setCount.a) === enteredSetsWon.a &&
+      Number(setCount.b) === enteredSetsWon.b);
   const enteredPoints = useMemo(() => totalPoints(sets), [sets]);
 
   const submit = async () => {
@@ -288,6 +299,43 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
           </span>
         </div>
 
+        {setsToWin > 1 && (
+          <div className="space-y-2">
+            <p className="text-xs font-bold text-ink-600">セット数を入力してください</p>
+            <div className="flex items-center gap-2">
+              <span className="w-[74px] shrink-0 whitespace-nowrap text-sm font-black text-court-800">
+                セット数
+              </span>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                aria-label={`セット数 ${teamA}`}
+                className="h-14 min-w-0 flex-1 rounded-xl border-2 border-court-200 bg-white text-center text-2xl font-black tabular-nums text-court-900 outline-none focus:border-court-500"
+                value={setCount.a}
+                autoFocus
+                onChange={(e) =>
+                  setSetCount((v) => ({ ...v, a: e.target.value.replace(/[^0-9]/g, "").slice(0, 1) }))
+                }
+                onFocus={(e) => e.currentTarget.select()}
+              />
+              <span className="shrink-0 text-lg font-black text-ink-500">-</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                aria-label={`セット数 ${teamB}`}
+                className="h-14 min-w-0 flex-1 rounded-xl border-2 border-court-200 bg-white text-center text-2xl font-black tabular-nums text-court-900 outline-none focus:border-court-500"
+                value={setCount.b}
+                onChange={(e) =>
+                  setSetCount((v) => ({ ...v, b: e.target.value.replace(/[^0-9]/g, "").slice(0, 1) }))
+                }
+                onFocus={(e) => e.currentTarget.select()}
+              />
+            </div>
+          </div>
+        )}
+
         <div className="space-y-2">
           <p className="text-xs font-bold text-ink-600">
             {fixedGames ? "3ゲームすべての点数を入力してください" : "各セットの点数を入力してください"}
@@ -297,7 +345,7 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
               key={i}
               label={setLabel(i)}
               value={v}
-              autoFocus={i === 0}
+              autoFocus={i === 0 && setsToWin === 1}
               onChange={(next) => setInputs((list) => list.map((x, j) => (j === i ? next : x)))}
             />
           ))}
@@ -341,6 +389,16 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
           </p>
         ) : null}
 
+        {setsToWin > 1 &&
+          (setCount.a !== "" || setCount.b !== "" || sets.length === limit) &&
+          !setCountMatches && (
+            <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm font-bold text-amber-800">
+              {setCountComplete
+                ? `点数から計算したセット数は ${enteredSetsWon.a} - ${enteredSetsWon.b} です。セット数を確認してください。`
+                : "両チームのセット数を入力してください。"}
+            </p>
+          )}
+
         {sets.length > 0 && !check.ok && check.error && (
           <p className="rounded-xl bg-amber-50 px-3 py-2 text-sm font-bold text-amber-800">
             {check.error}
@@ -352,7 +410,7 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
           </p>
         )}
 
-        <button className="btn-accent w-full" onClick={() => setStep("confirm")} disabled={!check.ok}>
+        <button className="btn-accent w-full" onClick={() => setStep("confirm")} disabled={!check.ok || !setCountMatches}>
           結果を送信する
         </button>
         <button className="btn-ghost w-full" onClick={() => router.push("/report")}>

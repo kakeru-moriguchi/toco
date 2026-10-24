@@ -106,7 +106,7 @@ export function StandingsTable({
   return (
     <>
       <div className="scroll-x">
-        <table className="w-full min-w-[560px] border-collapse text-sm">
+        <table className="w-full min-w-[760px] border-collapse text-sm">
           <thead>
             <tr className="bg-court-50 text-xs font-black text-court-800">
               <th className="sticky left-0 z-10 bg-court-50 px-2 py-2 text-center" style={rankStyle}>
@@ -121,6 +121,9 @@ export function StandingsTable({
               <th className="px-2 py-2 text-center">試合</th>
               <th className="px-2 py-2 text-center">勝</th>
               <th className="px-2 py-2 text-center">負</th>
+              <th className="whitespace-nowrap px-2 py-2 text-center">得セット</th>
+              <th className="whitespace-nowrap px-2 py-2 text-center">失セット</th>
+              <th className="whitespace-nowrap px-2 py-2 text-center">セット差</th>
               <th className="px-2 py-2 text-center">得点</th>
               <th className="px-2 py-2 text-center">失点</th>
               <th className="px-2 py-2 text-center">得失差</th>
@@ -178,6 +181,15 @@ export function StandingsTable({
                     {r.wins}
                   </td>
                   <td className="px-2 py-2.5 text-center tabular-nums text-ink-700">{r.losses}</td>
+                  <td className="px-2 py-2.5 text-center font-bold tabular-nums text-court-700">
+                    {r.setsFor}
+                  </td>
+                  <td className="px-2 py-2.5 text-center tabular-nums text-ink-700">
+                    {r.setsAgainst}
+                  </td>
+                  <td className="px-2 py-2.5 text-center font-bold tabular-nums text-ink-900">
+                    {r.setDiff > 0 ? `+${r.setDiff}` : r.setDiff}
+                  </td>
                   <td className="px-2 py-2.5 text-center tabular-nums text-ink-700">
                     {r.pointsFor}
                   </td>

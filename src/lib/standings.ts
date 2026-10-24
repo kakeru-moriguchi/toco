@@ -1,4 +1,5 @@
 import type { Match, Team, Tiebreaker } from "./types";
+import { matchSets, setsWon } from "./score";
 
 /**
  * 順位計算ロジック（独立モジュール）
@@ -16,6 +17,9 @@ export type StandingRow = {
   wins: number;
   losses: number;
   draws: number;
+  setsFor: number;
+  setsAgainst: number;
+  setDiff: number;
   pointsFor: number;
   pointsAgainst: number;
   diff: number;
@@ -52,7 +56,9 @@ function headToHead(a: string, b: string, matches: Match[]) {
     const bScore = m.team_a_id === a ? m.score_b! : m.score_a!;
     aPts += aScore;
     bPts += bScore;
-    if (aScore > bScore) aWins++;
+    if (m.winner_team_id === a) aWins++;
+    else if (m.winner_team_id === b) bWins++;
+    else if (aScore > bScore) aWins++;
     else if (bScore > aScore) bWins++;
   }
   return { aWins, bWins, aPts, bPts };
@@ -111,6 +117,9 @@ export function computeStandings(
       wins: 0,
       losses: 0,
       draws: 0,
+      setsFor: 0,
+      setsAgainst: 0,
+      setDiff: 0,
       pointsFor: 0,
       pointsAgainst: 0,
       diff: 0,
@@ -126,16 +135,21 @@ export function computeStandings(
     if (!a || !b) continue;
     const sa = m.score_a!;
     const sb = m.score_b!;
+    const won = setsWon(matchSets(m));
     a.played++;
+    a.setsFor += won.a;
+    a.setsAgainst += won.b;
+    b.setsFor += won.b;
+    b.setsAgainst += won.a;
     b.played++;
     a.pointsFor += sa;
     a.pointsAgainst += sb;
     b.pointsFor += sb;
     b.pointsAgainst += sa;
-    if (sa > sb) {
+    if (won.a > won.b) {
       a.wins++;
       b.losses++;
-    } else if (sb > sa) {
+    } else if (won.b > won.a) {
       b.wins++;
       a.losses++;
     } else {
@@ -145,7 +159,10 @@ export function computeStandings(
   }
 
   const list = [...rows.values()];
-  for (const r of list) r.diff = r.pointsFor - r.pointsAgainst;
+  for (const r of list) {
+    r.setDiff = r.setsFor - r.setsAgainst;
+    r.diff = r.pointsFor - r.pointsAgainst;
+  }
 
   const keys = tiebreakers.length > 0 ? tiebreakers : DEFAULT_TIEBREAKERS;
 
