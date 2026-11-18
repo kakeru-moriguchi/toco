@@ -9,8 +9,8 @@
     @apply bg-[#FAF6EF] text-ink-900 antialiased;
     /* A restrained court-line motif adds energy without competing with content. */
     background-image:
-      linear-gradient(135deg, transparent 0 74%, rgba(244, 119, 33, 0.035) 74% 75%, transparent 75%),
-      radial-gradient(circle at 100% 0%, rgba(244, 119, 33, 0.1), transparent 38%);
+      linear-gradient(135deg, transparent 0 74%, rgba(255, 129, 42, 0.04) 74% 75%, transparent 75%),
+      radial-gradient(circle at 100% 0%, rgba(255, 129, 42, 0.11), transparent 38%);
     background-size: 320px 320px, auto;
     background-attachment: fixed;
   }
