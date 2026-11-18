@@ -37,10 +37,10 @@ export function AdminShell({
           <span className="rounded bg-ball-500 px-2 py-0.5 text-xs font-black text-court-950">管理</span>
           <span className="text-sm font-bold">主催者メニュー</span>
           <div className="ml-auto flex items-center gap-2">
-            <Link href="/" className="rounded-lg px-2 py-1.5 text-xs font-bold text-court-100 hover:bg-white/10">
+            <Link href="/" className="flex min-h-10 items-center rounded-lg px-3 text-xs font-bold text-court-100 hover:bg-white/10">
               参加者画面
             </Link>
-            <button onClick={logout} className="rounded-lg px-2 py-1.5 text-xs font-bold text-court-100 hover:bg-white/10">
+            <button onClick={logout} className="min-h-10 rounded-lg px-3 text-xs font-bold text-court-100 hover:bg-white/10">
               ログアウト
             </button>
           </div>
@@ -53,7 +53,7 @@ export function AdminShell({
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`shrink-0 rounded-lg px-3 py-2 text-sm font-bold ${
+                  className={`flex min-h-11 shrink-0 items-center rounded-lg px-3 text-sm font-bold ${
                     active ? "bg-white text-court-900" : "text-court-100 hover:bg-white/10"
                   }`}
                 >
