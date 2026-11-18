@@ -9,17 +9,17 @@ const config: Config = {
         // The existing semantic names are kept so every screen can adopt the new
         // theme without changing its structure or behavior.
         court: {
-          50: "#FFF9F3",
-          100: "#FFF0DF",
-          200: "#FFD9B8",
-          300: "#FFBE85",
-          400: "#FFA452",
-          500: "#FF922E",
-          600: "#F77714",
-          700: "#D95B0B",
-          800: "#B6490D",
-          900: "#913B10",
-          950: "#4F1905",
+          50: "#FFF4E8",
+          100: "#FFE5CC",
+          200: "#FFC999",
+          300: "#FFA85C",
+          400: "#FF8A24",
+          500: "#FF7600",
+          600: "#E96300",
+          700: "#C94F00",
+          800: "#AA4000",
+          900: "#873000",
+          950: "#4A1600",
         },
         ball: {
           // 50 / 100 remain fully opaque for sticky table columns.
