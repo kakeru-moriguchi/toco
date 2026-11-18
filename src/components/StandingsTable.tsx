@@ -22,7 +22,7 @@ const RANK_W = 46; // 順位列の幅(px)
 const NAME_W = 150; // チーム名列の幅(px)
 
 /** 固定列の右端に影を付けて、スクロールの境目を分かりやすくする */
-const EDGE_SHADOW = "shadow-[6px_0_8px_-6px_rgba(11,65,51,0.25)]";
+const EDGE_SHADOW = "shadow-[6px_0_8px_-6px_rgba(120,50,12,0.22)]";
 
 /** チーム名をタップしたときに出すメンバー一覧 */
 function MemberDialog({
@@ -44,7 +44,7 @@ function MemberDialog({
 
   // 「山田/佐藤」「山田、佐藤」「山田・佐藤」いずれの区切りでも1人ずつに分ける
   const list = members
-    .split(/[\/、,・]/)
+    .split(/[/、,・]/)
     .map((m) => m.trim())
     .filter(Boolean);
 

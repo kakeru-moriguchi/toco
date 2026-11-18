@@ -57,7 +57,7 @@ export default function AdminTournamentPage() {
     setTiers(t.bracket_tiers);
   }, [state, form]);
 
-  const set = (key: string, value: unknown) => setForm((f) => ({ ...(f ?? {}), [key]: value }));
+  const set = (key: string, value: unknown) => setForm((f) => ({ ...f, [key]: value }));
 
   const updateTier = (index: number, patch: Partial<BracketTier>) => {
     setTiers((list) => list.map((t, i) => (i === index ? { ...t, ...patch } : t)));
@@ -141,7 +141,7 @@ export default function AdminTournamentPage() {
         confirm: resetConfirmation,
       });
       setForm((current) => ({
-        ...(current ?? {}),
+        ...current,
         name: "ピックルボール大会",
         event_date: "",
         venue: "",

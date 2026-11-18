@@ -25,7 +25,7 @@
 | --- | --- |
 | フレームワーク | Next.js 15（App Router） |
 | 言語 | TypeScript 5.7 |
-| UI | React 19 / Tailwind CSS 3.4 |
+| UI | React 19 / Tailwind CSS 4.3 |
 | DB・リアルタイム配信 | Supabase（PostgreSQL + Realtime） |
 | ホスティング | Vercel（`main` への push で自動デプロイ） |
 
@@ -33,6 +33,7 @@
 npm install
 npm run dev        # 開発サーバー
 npm run build      # 本番ビルド（変更したら必ず通すこと）
+npm run lint       # Oxlint（警告も失敗として扱う）
 npm run typecheck  # 型チェック
 ```
 

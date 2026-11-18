@@ -5,34 +5,37 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // 大会用オリジナルパレット: 深いコート・グリーン + ボールの蛍光イエロー
+        // TOCO palette: energetic orange, warm beige, ivory, and dark brown.
+        // The existing semantic names are kept so every screen can adopt the new
+        // theme without changing its structure or behavior.
         court: {
-          50: "#eefaf5",
-          100: "#d3f2e5",
-          200: "#a8e5cd",
-          300: "#71d1ae",
-          400: "#3cb78c",
-          500: "#1d9b72",
-          600: "#117c5c",
-          700: "#0e634b",
-          800: "#0d4f3d",
-          900: "#0b4133",
-          950: "#04251d",
+          50: "#FFF7F0",
+          100: "#FEE9D8",
+          200: "#FCD0AE",
+          300: "#FAB17C",
+          400: "#F78F45",
+          500: "#F47721",
+          600: "#D95D12",
+          700: "#B7470C",
+          800: "#923A10",
+          900: "#783212",
+          950: "#411607",
         },
         ball: {
-          // 50 / 100 は「白の上に ball-500 を薄く重ねた色」を不透明色として持たせたもの。
-          // 横スクロールで固定する列の背景に半透明色を使うと、
-          // 下を流れるスコアが透けて重なって見えるため、必ず不透明色を使う。
-          50: "#fdfae8",
-          100: "#f9f4c6",
-          400: "#f4e34a",
-          500: "#e8d21c",
-          600: "#c4ad0c",
+          // 50 / 100 remain fully opaque for sticky table columns.
+          50: "#FBF5ED",
+          100: "#F5EBDD",
+          200: "#EFDFCC",
+          300: "#EBDCC9",
+          400: "#EAD9C4",
+          500: "#EAD9C4",
+          600: "#D4B995",
         },
         ink: {
-          500: "#6b7280",
-          700: "#374151",
-          900: "#111827",
+          500: "#7A7068",
+          600: "#635A53",
+          700: "#4B433D",
+          900: "#292420",
         },
       },
       fontFamily: {
@@ -47,7 +50,7 @@ const config: Config = {
         ],
       },
       boxShadow: {
-        card: "0 1px 2px rgba(11, 65, 51, .06), 0 8px 24px -12px rgba(11, 65, 51, .25)",
+        card: "0 1px 2px rgba(80, 45, 20, .05), 0 12px 30px -16px rgba(117, 65, 26, .24)",
       },
     },
   },

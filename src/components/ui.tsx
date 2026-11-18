@@ -10,7 +10,7 @@ export function StatusBadge({ status }: { status: MatchStatus }) {
       ? "bg-court-100 text-court-800"
       : status === "in_progress"
         ? "bg-ball-500 text-court-950"
-        : "bg-slate-100 text-slate-600";
+        : "bg-ball-100 text-ink-600";
   return (
     <span className={`chip ${style}`}>
       {status === "in_progress" && (
