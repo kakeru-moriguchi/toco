@@ -5,37 +5,37 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // TOCO palette: energetic orange, warm beige, ivory, and dark brown.
+        // TOCO palette: charcoal, soft gray, white, and warm orange.
         // The existing semantic names are kept so every screen can adopt the new
         // theme without changing its structure or behavior.
         court: {
-          50: "#FFF4E8",
-          100: "#FFE5CC",
-          200: "#FFC999",
-          300: "#FFA85C",
-          400: "#FF9A3D",
-          500: "#FF7A00",
-          600: "#F56B0A",
-          700: "#F06A13",
-          800: "#DC5707",
-          900: "#B84404",
-          950: "#4A1600",
+          50: "#FFF8F2",
+          100: "#FDECDC",
+          200: "#FBD5B8",
+          300: "#F9BD8E",
+          400: "#F8AD72",
+          500: "#F8A45A",
+          600: "#E98A3E",
+          700: "#C96E2E",
+          800: "#263746",
+          900: "#1D2B36",
+          950: "#131D25",
         },
         ball: {
           // 50 / 100 remain fully opaque for sticky table columns.
-          50: "#FBF5ED",
-          100: "#F5EBDD",
-          200: "#EFDFCC",
-          300: "#EBDCC9",
-          400: "#EAD9C4",
-          500: "#EAD9C4",
-          600: "#D4B995",
+          50: "#F8F9FA",
+          100: "#F0F2F3",
+          200: "#E2E6E9",
+          300: "#D6DCE0",
+          400: "#F8AD72",
+          500: "#F8A45A",
+          600: "#D98444",
         },
         ink: {
-          500: "#7A7068",
-          600: "#635A53",
-          700: "#4B433D",
-          900: "#292420",
+          500: "#71808C",
+          600: "#596A77",
+          700: "#3F515F",
+          900: "#263746",
         },
       },
       fontFamily: {
@@ -50,7 +50,7 @@ const config: Config = {
         ],
       },
       boxShadow: {
-        card: "0 1px 2px rgba(80, 45, 20, .05), 0 12px 30px -16px rgba(117, 65, 26, .24)",
+        card: "0 1px 2px rgba(38, 55, 70, .06), 0 12px 30px -16px rgba(38, 55, 70, .24)",
       },
     },
   },
