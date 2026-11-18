@@ -44,7 +44,7 @@ function MemberDialog({
 
   // 「山田/佐藤」「山田、佐藤」「山田・佐藤」いずれの区切りでも1人ずつに分ける
   const list = members
-    .split(/[\/、,・]/)
+    .split(/[/、,・]/)
     .map((m) => m.trim())
     .filter(Boolean);
 

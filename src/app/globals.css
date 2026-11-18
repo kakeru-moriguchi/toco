@@ -1,6 +1,5 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+@config "../../tailwind.config.ts";
 
 @layer base {
   html {
@@ -29,13 +28,14 @@
   }
 }
 
+@utility btn {
+  @apply inline-flex min-h-[48px] items-center justify-center gap-2 rounded-xl px-5 text-base font-bold
+         transition active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-40;
+}
+
 @layer components {
   .card {
     @apply rounded-2xl bg-white shadow-card ring-1 ring-[#EAD9C4]/70;
-  }
-  .btn {
-    @apply inline-flex min-h-[48px] items-center justify-center gap-2 rounded-xl px-5 text-base font-bold
-           transition active:scale-[.98] disabled:cursor-not-allowed disabled:opacity-40;
   }
   .btn-primary {
     @apply btn bg-court-500 text-white shadow-sm hover:bg-court-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-court-300 focus-visible:ring-offset-2;
