@@ -1,10 +1,19 @@
 "use client";
 
+import { selectedTournamentId } from "./tournamentSelection";
+
+function adminHeaders() {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const tournamentId = selectedTournamentId();
+  if (tournamentId) headers["X-Tournament-Id"] = tournamentId;
+  return headers;
+}
+
 /** 管理画面から叩くAPIの共通ラッパー */
 export async function adminPost(path: string, body: unknown): Promise<Record<string, unknown>> {
   const res = await fetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: adminHeaders(),
     body: JSON.stringify(body),
   });
   const json = await res.json().catch(() => ({}));
@@ -15,7 +24,7 @@ export async function adminPost(path: string, body: unknown): Promise<Record<str
 export async function adminPatch(path: string, body: unknown): Promise<Record<string, unknown>> {
   const res = await fetch(path, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
+    headers: adminHeaders(),
     body: JSON.stringify(body),
   });
   const json = await res.json().catch(() => ({}));

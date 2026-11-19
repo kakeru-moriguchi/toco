@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { ensureLeagues, getTournament } from "@/lib/data";
-import { errorMessage, fail, ok, requireAdmin } from "@/lib/api";
+import { errorMessage, fail, ok, requireAdmin, tournamentIdFromRequest } from "@/lib/api";
 import { normalizeTiers, validateTiers } from "@/lib/tiers";
 import type { Tiebreaker } from "@/lib/types";
 
@@ -21,7 +21,7 @@ export async function PATCH(req: NextRequest) {
   if (!(await requireAdmin(req))) return fail("認証が必要です。", 401);
   try {
     const body = await req.json();
-    const tournament = await getTournament();
+    const tournament = await getTournament(tournamentIdFromRequest(req));
     const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
 
     if (typeof body.name === "string") patch.name = body.name.slice(0, 120);
@@ -80,7 +80,7 @@ export async function PATCH(req: NextRequest) {
       await ensureLeagues(tournament.id, patch.league_count as number);
     }
 
-    return ok({ tournament: await getTournament() });
+    return ok({ tournament: await getTournament(tournament.id) });
   } catch (e) {
     return fail(errorMessage(e), 500);
   }

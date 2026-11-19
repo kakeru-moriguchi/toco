@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabaseBrowser } from "./supabase";
 import type { TournamentState } from "./types";
+import {
+  selectedTournamentId,
+  selectTournament,
+  TOURNAMENT_CHANGE_EVENT,
+} from "./tournamentSelection";
 
 /**
  * 大会の全状態を取得し、他の端末での更新を自動で反映するフック。
@@ -23,10 +28,15 @@ export function useTournamentState() {
     if (inFlight.current) return;
     inFlight.current = true;
     try {
-      const res = await fetch("/api/state", { cache: "no-store" });
+      const urlTournamentId = new URLSearchParams(window.location.search).get("tournament_id");
+      if (urlTournamentId && urlTournamentId !== selectedTournamentId()) selectTournament(urlTournamentId);
+      const tournamentId = urlTournamentId || selectedTournamentId();
+      const query = tournamentId ? `?tournament_id=${encodeURIComponent(tournamentId)}` : "";
+      const res = await fetch(`/api/state${query}`, { cache: "no-store" });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? "データを取得できませんでした。");
       setState(json as TournamentState);
+      if (!tournamentId && json?.tournament?.id) selectTournament(json.tournament.id);
       setUpdatedAt(new Date());
       setError(null);
     } catch (e) {
@@ -58,11 +68,13 @@ export function useTournamentState() {
     };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
+    window.addEventListener(TOURNAMENT_CHANGE_EVENT, refresh);
 
     return () => {
       clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
+      window.removeEventListener(TOURNAMENT_CHANGE_EVENT, refresh);
       if (client && channel) client.removeChannel(channel);
     };
   }, [refresh]);

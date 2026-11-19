@@ -83,7 +83,7 @@
 
 | テーブル | 役割 | 主なカラム |
 | --- | --- | --- |
-| `tournaments` | 大会情報と大会設定（1行だけ使う） | `name` `event_date` `venue` `note` `league_count` `teams_per_league` `point_target` **`sets_to_win`** `start_time` `minutes_per_match` `courts` `tiebreakers` **`bracket_tiers`** `phase` |
+| `tournaments` | 大会情報と大会設定（複数大会を保存可能） | `name` `event_date` `venue` `note` `league_count` `teams_per_league` `point_target` **`sets_to_win`** `start_time` `minutes_per_match` `courts` `tiebreakers` **`bracket_tiers`** `phase` `archived_at` |
 | `leagues` | 予選リーグ＋総当たり形式の級のリーグ | `name` `sort_order` **`tier_key`**（予選は null） |
 | `teams` | チーム | `name` `members` `league_id` `sort_order` |
 | `matches` | 試合（リーグ戦・トーナメント共通） | `stage` `league_id` **`tier_key`** `round` `bracket_index` `is_third_place` `match_no` `court` `scheduled_at` `status` `team_a_id` `team_b_id` `team_a_label` `team_b_label` **`sets`** `score_a` `score_b` `winner_team_id` `next_match_id` `next_slot` `loser_next_match_id` `loser_next_slot` |
@@ -185,6 +185,7 @@
 | URL | 画面 | 内容 |
 | --- | --- | --- |
 | `/admin/login` | ログイン | 管理パスワードの入力 |
+| `/admin/tournaments` | 大会一覧 | 大会の登録・切り替え・安全なアーカイブ・復元 |
 | `/admin` | ホーム | 進行状況のまとめ、次の試合、準備手順への入口 |
 | `/admin/tournament` | 大会情報 | 大会名・開催日・会場・お知らせ／リーグ数／**順位別ラウンド（級）の定義**／開始時刻・持ち時間・コート番号／順位の決め方／大会データの一括リセット |
 | `/admin/teams` | チーム・リーグ分け | まとめて登録・1件追加・編集・削除・リーグ自動振り分け・ランダム振り分け |
@@ -347,6 +348,7 @@
    > | `migration_001_bracket_tiers.sql` | 順位別ラウンド（級）に対応 |
    > | `migration_002_tier_modes.sql` | 級の指定方法（上位から/下位から/残り）と、総当たり形式に対応 |
    > | `migration_003_sets.sql` | セット制（2セット先取など）に対応 |
+> | `migration_004_multi_tournaments.sql` | 複数大会と安全なアーカイブに対応 |
    >
    > （これから初めて `schema.sql` を実行する場合は、マイグレーションは不要です）
 

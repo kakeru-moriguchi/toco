@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { defaultLeagueName, ensureLeagues, getState, getTournament } from "@/lib/data";
-import { errorMessage, fail, ok, requireAdmin } from "@/lib/api";
+import { errorMessage, fail, ok, requireAdmin, tournamentIdFromRequest } from "@/lib/api";
 import type { Team } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
   if (!(await requireAdmin(req))) return fail("認証が必要です。", 401);
   try {
     const db = supabaseAdmin();
-    const tournament = await getTournament();
+    const tournament = await getTournament(tournamentIdFromRequest(req));
     const body = await req.json();
     const action = String(body?.action ?? "");
 
@@ -92,7 +92,7 @@ export async function POST(req: NextRequest) {
       if (error) throw new Error(error.message);
     } else if (action === "auto_assign" || action === "shuffle") {
       const leagues = await ensureLeagues(tournament.id, tournament.league_count);
-      const state = await getState();
+      const state = await getState(tournament.id);
       let teams: Team[] = [...state.teams].sort((a, b) => a.sort_order - b.sort_order);
       if (action === "shuffle") {
         for (let i = teams.length - 1; i > 0; i--) {
@@ -137,7 +137,7 @@ export async function POST(req: NextRequest) {
       return fail("不明な操作です。");
     }
 
-    const state = await getState();
+    const state = await getState(tournament.id);
     return ok({ teams: state.teams, leagues: state.leagues });
   } catch (e) {
     return fail(errorMessage(e), 500);
