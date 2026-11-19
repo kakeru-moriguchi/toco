@@ -2,9 +2,13 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { selectTournament, selectedTournamentId } from "@/lib/tournamentSelection";
+import type { TournamentSummary } from "@/lib/types";
 
 const NAV = [
   { href: "/admin", label: "ホーム" },
+  { href: "/admin/tournaments", label: "大会一覧" },
   { href: "/admin/tournament", label: "大会情報" },
   { href: "/admin/teams", label: "チーム・リーグ分け" },
   { href: "/admin/matches", label: "対戦・結果" },
@@ -23,6 +27,28 @@ export function AdminShell({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const [tournaments, setTournaments] = useState<TournamentSummary[]>([]);
+  const [activeTournamentId, setActiveTournamentId] = useState("");
+
+  useEffect(() => {
+    setActiveTournamentId(selectedTournamentId() ?? "");
+    fetch("/api/admin/tournaments", { cache: "no-store" })
+      .then(async (res) => {
+        const json = await res.json();
+        if (!res.ok) throw new Error(json?.error ?? "大会一覧を取得できませんでした。");
+        return (json.tournaments ?? []) as TournamentSummary[];
+      })
+      .then((items) => {
+        const active = items.filter((item) => !item.archived_at);
+        setTournaments(active);
+        const selected = selectedTournamentId();
+        if ((!selected || !active.some((item) => item.id === selected)) && active[0]) {
+          selectTournament(active[0].id);
+          setActiveTournamentId(active[0].id);
+        }
+      })
+      .catch(() => setTournaments([]));
+  }, []);
 
   const logout = async () => {
     await fetch("/api/admin/session", { method: "DELETE" });
@@ -37,7 +63,7 @@ export function AdminShell({
           <span className="rounded bg-ball-500 px-2 py-0.5 text-xs font-black text-court-950">管理</span>
           <span className="text-sm font-bold">主催者メニュー</span>
           <div className="ml-auto flex items-center gap-2">
-            <Link href="/" className="flex min-h-10 items-center rounded-lg px-3 text-xs font-bold text-court-100 hover:bg-white/10">
+            <Link href={activeTournamentId ? `/?tournament_id=${activeTournamentId}` : "/"} className="flex min-h-10 items-center rounded-lg px-3 text-xs font-bold text-court-100 hover:bg-white/10">
               参加者画面
             </Link>
             <button onClick={logout} className="min-h-10 rounded-lg px-3 text-xs font-bold text-court-100 hover:bg-white/10">
@@ -66,6 +92,25 @@ export function AdminShell({
       </header>
 
       <main className="mx-auto max-w-5xl px-4 py-5">
+        {tournaments.length > 0 && (
+          <div className="mb-4">
+            <label className="label" htmlFor="admin-tournament-selector">管理する大会</label>
+            <select
+              id="admin-tournament-selector"
+              className="field"
+              value={activeTournamentId}
+              onChange={(e) => {
+                selectTournament(e.target.value);
+                setActiveTournamentId(e.target.value);
+                router.refresh();
+              }}
+            >
+              {tournaments.map((tournament) => (
+                <option key={tournament.id} value={tournament.id}>{tournament.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
         <div className="mb-4">
           <h1 className="text-xl font-black text-court-900">{title}</h1>
           {description && <p className="mt-1 text-sm text-ink-700">{description}</p>}

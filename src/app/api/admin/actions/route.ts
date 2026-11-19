@@ -8,7 +8,7 @@ import {
   getTournament,
   regenerateLeagueMatches,
 } from "@/lib/data";
-import { errorMessage, fail, ok, requireAdmin } from "@/lib/api";
+import { errorMessage, fail, ok, requireAdmin, tournamentIdFromRequest } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +24,7 @@ export async function POST(req: NextRequest) {
   if (!(await requireAdmin(req))) return fail("認証が必要です。", 401);
   try {
     const db = supabaseAdmin();
-    const tournament = await getTournament();
+    const tournament = await getTournament(tournamentIdFromRequest(req));
     const body = await req.json();
     const action = String(body?.action ?? "");
 
@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
       if (recreatedLeagues.length !== tournament.league_count) {
         throw new Error("空の予選リーグを作り直せませんでした。もう一度リセットを実行してください。");
       }
-      const state = await getState();
+      const state = await getState(tournament.id);
       const unassigned = state.teams.filter((t) => !t.league_id).length;
       if (unassigned > 0) {
         return fail(`リーグが未設定のチームが ${unassigned} 組あります。先にリーグ分けをしてください。`);
@@ -42,7 +42,7 @@ export async function POST(req: NextRequest) {
       await regenerateLeagueMatches(tournament.id);
       await db.from("tournaments").update({ phase: "league" }).eq("id", tournament.id);
     } else if (action === "generate_bracket") {
-      const state = await getState();
+      const state = await getState(tournament.id);
       const leagueMatches = state.matches.filter((m) => m.stage === "league");
       const remaining = leagueMatches.filter((m) => m.status !== "done").length;
       if (leagueMatches.length === 0) return fail("先にリーグ戦の対戦カードを作成してください。");
@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
         );
       }
       const result = await generateBracket(tournament.id, { startTime: body.startTime });
-      return ok({ ...(await getState()), tiers: result.tiers });
+      return ok({ ...(await getState(tournament.id)), tiers: result.tiers });
     } else if (action === "reset_bracket") {
       // 決勝ラウンドを丸ごと削除（トーナメントの試合と、総当たり級のリーグごと）
       await db.from("matches").delete().eq("tournament_id", tournament.id).eq("stage", "bracket");
@@ -110,7 +110,7 @@ export async function POST(req: NextRequest) {
       return fail("不明な操作です。");
     }
 
-    return ok(await getState());
+    return ok(await getState(tournament.id));
   } catch (e) {
     return fail(errorMessage(e), 400);
   }

@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { clearResult, getState, getTournament, logMatchEvent, saveResult } from "@/lib/data";
-import { errorMessage, fail, ok, readSets, requireAdmin } from "@/lib/api";
+import { errorMessage, fail, ok, readSets, requireAdmin, tournamentIdFromRequest } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
   if (!(await requireAdmin(req))) return fail("認証が必要です。", 401);
   try {
     const db = supabaseAdmin();
-    const tournament = await getTournament();
+    const tournament = await getTournament(tournamentIdFromRequest(req));
     const body = await req.json();
     const action = String(body?.action ?? "");
     const id = String(body?.id ?? "");
@@ -108,9 +108,9 @@ export async function POST(req: NextRequest) {
     } else if (action === "result") {
       const sets = readSets(body);
       if (sets.length === 0) return fail("スコアを入力してください。");
-      await saveResult({ matchId: id, sets, actor: "admin" });
+      await saveResult({ matchId: id, sets, actor: "admin", tournamentId: tournament.id });
     } else if (action === "clear") {
-      await clearResult(id);
+      await clearResult(id, tournament.id);
     } else if (action === "status") {
       const status = String(body.status ?? "");
       if (!["pending", "in_progress", "done"].includes(status)) return fail("状態の指定が不正です。");
@@ -184,7 +184,7 @@ export async function POST(req: NextRequest) {
         .eq("tournament_id", tournament.id);
       if (error) throw new Error(error.message);
     } else if (action === "move") {
-      const state = await getState();
+      const state = await getState(tournament.id);
       const ordered = [...state.matches].sort((a, b) => a.match_no - b.match_no);
       const index = ordered.findIndex((m) => m.id === id);
       if (index < 0) return fail("対象の試合が見つかりませんでした。");
@@ -214,7 +214,7 @@ export async function POST(req: NextRequest) {
       return fail("不明な操作です。");
     }
 
-    const state = await getState();
+    const state = await getState(tournament.id);
     return ok({ matches: state.matches });
   } catch (e) {
     return fail(errorMessage(e), 400);

@@ -39,9 +39,13 @@ create table if not exists tournaments (
       {"key":"C","name":"Cリーグ","mode":"bottom","from_rank":4,"to_rank":4,"bottom_count":1,"format":"league","third_place":false}]'::jsonb,
   phase              text        not null default 'setup'
                        check (phase in ('setup','league','bracket','finished')),
+  -- 一覧から安全に退避するための論理アーカイブ。関連データは削除しない。
+  archived_at        timestamptz,
   created_at         timestamptz not null default now(),
   updated_at         timestamptz not null default now()
 );
+create index if not exists tournaments_active_idx
+  on tournaments(archived_at, event_date desc, created_at desc);
 
 -- ------------------------------------------------------------
 -- リーグ（A / B / C / D ...）

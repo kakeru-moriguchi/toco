@@ -113,7 +113,15 @@ export type Tournament = {
   tiebreakers: Tiebreaker[];
   bracket_tiers: BracketTier[];
   phase: Phase;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
 };
+
+export type TournamentSummary = Pick<
+  Tournament,
+  "id" | "name" | "event_date" | "venue" | "phase" | "archived_at" | "created_at" | "updated_at"
+>;
 
 export type League = {
   id: string;

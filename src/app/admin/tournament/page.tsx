@@ -38,9 +38,10 @@ export default function AdminTournamentPage() {
   const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
-    if (!state || form) return;
+    if (!state || form?._tournament_id === state.tournament.id) return;
     const t = state.tournament;
     setForm({
+      _tournament_id: t.id,
       name: t.name,
       event_date: t.event_date ?? "",
       venue: t.venue,
@@ -51,6 +52,7 @@ export default function AdminTournamentPage() {
       sets_to_win: t.sets_to_win,
       start_time: t.start_time,
       minutes_per_match: t.minutes_per_match,
+      phase: t.phase,
     });
     setCourts(t.courts.join(", "));
     setTiebreakers(t.tiebreakers);
@@ -117,6 +119,7 @@ export default function AdminTournamentPage() {
     try {
       await adminPatch("/api/admin/tournament", {
         ...form,
+        _tournament_id: undefined,
         event_date: form.event_date || null,
         courts: courts.split(/[,、\s]+/).map((c) => c.trim()).filter(Boolean),
         tiebreakers,
@@ -146,6 +149,7 @@ export default function AdminTournamentPage() {
         event_date: "",
         venue: "",
         note: "",
+        phase: "setup",
       }));
       await refresh();
       setResetOpen(false);
@@ -183,6 +187,15 @@ export default function AdminTournamentPage() {
                 <label className="label" htmlFor="venue">会場名</label>
                 <input id="venue" className="field" value={String(form.venue ?? "")} onChange={(e) => set("venue", e.target.value)} />
               </div>
+            </div>
+            <div>
+              <label className="label" htmlFor="phase">大会の状態</label>
+              <select id="phase" className="field sm:w-64" value={String(form.phase ?? "setup")} onChange={(e) => set("phase", e.target.value)}>
+                <option value="setup">準備中</option>
+                <option value="league">開催中（予選）</option>
+                <option value="bracket">開催中（決勝）</option>
+                <option value="finished">終了</option>
+              </select>
             </div>
             <div>
               <label className="label" htmlFor="note">お知らせ（任意・トップページに表示）</label>

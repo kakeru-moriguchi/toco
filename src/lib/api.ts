@@ -18,6 +18,12 @@ export async function requireAdmin(req: NextRequest): Promise<boolean> {
   return verifySessionToken(req.cookies.get(ADMIN_COOKIE)?.value);
 }
 
+/** 管理画面で選択中の大会。未指定なら公開側と同じ既定大会を使う。 */
+export function tournamentIdFromRequest(req: NextRequest): string | null {
+  const value = req.headers.get("x-tournament-id")?.trim() ?? "";
+  return /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(value) ? value : null;
+}
+
 export function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message;
   return "予期しないエラーが発生しました。";

@@ -25,15 +25,16 @@ function toMatch(row: Record<string, unknown>): Match {
   return { ...(row as unknown as Match), sets: normalizeSets(row.sets) };
 }
 
-export async function getTournament(): Promise<Tournament> {
+export async function getTournament(tournamentId?: string | null): Promise<Tournament> {
   const db = supabaseAdmin();
-  const { data, error } = await db
-    .from("tournaments")
-    .select("*")
-    .order("created_at", { ascending: true })
-    .limit(1);
+  let query = db.from("tournaments").select("*");
+  query = tournamentId
+    ? query.eq("id", tournamentId)
+    : query.is("archived_at", null).order("created_at", { ascending: false }).limit(1);
+  const { data, error } = await query;
   if (error) throw new Error(error.message);
   if (!data || data.length === 0) {
+    if (tournamentId) throw new Error("指定された大会が見つかりませんでした。");
     const { data: created, error: insertError } = await db
       .from("tournaments")
       .insert({ name: "ピックルボール大会" })
@@ -45,9 +46,9 @@ export async function getTournament(): Promise<Tournament> {
   return toTournament(data[0]);
 }
 
-export async function getState(): Promise<TournamentState> {
+export async function getState(tournamentId?: string | null): Promise<TournamentState> {
   const db = supabaseAdmin();
-  const tournament = await getTournament();
+  const tournament = await getTournament(tournamentId);
   const [leagues, teams, matches] = await Promise.all([
     db.from("leagues").select("*").eq("tournament_id", tournament.id).order("sort_order"),
     db.from("teams").select("*").eq("tournament_id", tournament.id).order("sort_order"),
@@ -133,7 +134,7 @@ export async function ensureLeagues(tournamentId: string, count: number): Promis
  */
 export async function regenerateLeagueMatches(tournamentId: string) {
   const db = supabaseAdmin();
-  const tournament = await getTournament();
+  const tournament = await getTournament(tournamentId);
   const [leagues, { data: teamData }] = await Promise.all([
     getQualifyingLeagues(tournamentId),
     db.from("teams").select("*").eq("tournament_id", tournamentId).order("sort_order"),
@@ -220,7 +221,7 @@ export async function autoAssignSchedule(
   // 例: Aトーナメントの準々決勝と、Cリーグの1巡目が同じ時間帯に並ぶ。
   // 3位決定戦は同じラウンドの中で決勝より前に置く。
   const tierOrder = new Map(
-    normalizeTiers((await getTournament()).bracket_tiers).map((t, i) => [t.key, i])
+    normalizeTiers((await getTournament(tournamentId)).bracket_tiers).map((t, i) => [t.key, i])
   );
   const ordered = [...matches].sort((a, b) => {
     const ra = a.round ?? 0;
@@ -268,7 +269,7 @@ export async function autoAssignSchedule(
  */
 export async function generateBracket(tournamentId: string, options?: { startTime?: string }) {
   const db = supabaseAdmin();
-  const state = await getState();
+  const state = await getState(tournamentId);
   const { tournament, teams, matches } = state;
   const qualifyingLeagues = state.leagues.filter((l) => l.tier_key === null);
 
@@ -451,6 +452,8 @@ export type ResultInput = {
   /** 各セットのスコア。1セットのみの大会なら要素1つ */
   sets: SetScore[];
   actor: "team" | "admin";
+  /** 管理画面からの操作時に、選択大会以外の試合更新を防ぐ。 */
+  tournamentId?: string;
 };
 
 /**
@@ -459,8 +462,6 @@ export type ResultInput = {
  */
 export async function saveResult(input: ResultInput): Promise<Match> {
   const db = supabaseAdmin();
-  const tournament = await getTournament();
-
   const { data: found, error: findError } = await db
     .from("matches")
     .select("*")
@@ -468,6 +469,10 @@ export async function saveResult(input: ResultInput): Promise<Match> {
     .single();
   if (findError || !found) throw new Error("試合が見つかりませんでした。");
   const match = found as Match;
+  if (input.tournamentId && match.tournament_id !== input.tournamentId) {
+    throw new Error("選択中の大会に属さない試合です。");
+  }
+  const tournament = await getTournament(match.tournament_id);
 
   if (!match.team_a_id || !match.team_b_id) {
     throw new Error("対戦チームがまだ決まっていません。");
@@ -518,11 +523,14 @@ export async function saveResult(input: ResultInput): Promise<Match> {
 }
 
 /** 結果を取り消して「待機中」に戻す（主催者のみ） */
-export async function clearResult(matchId: string) {
+export async function clearResult(matchId: string, tournamentId?: string) {
   const db = supabaseAdmin();
   const { data: found } = await db.from("matches").select("*").eq("id", matchId).single();
   if (!found) throw new Error("試合が見つかりませんでした。");
   const match = found as Match;
+  if (tournamentId && match.tournament_id !== tournamentId) {
+    throw new Error("選択中の大会に属さない試合です。");
+  }
 
   await db
     .from("matches")
