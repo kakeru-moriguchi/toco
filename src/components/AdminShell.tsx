@@ -2,13 +2,15 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { selectTournament, selectedTournamentId } from "@/lib/tournamentSelection";
-import type { TournamentSummary } from "@/lib/types";
+import { DIVISION_CHANGE_EVENT, selectDivision, selectedDivisionId } from "@/lib/divisionSelection";
+import type { Division, TournamentSummary } from "@/lib/types";
 
 const NAV = [
   { href: "/admin", label: "ホーム" },
   { href: "/admin/tournaments", label: "大会一覧" },
+  { href: "/admin/divisions", label: "部門" },
   { href: "/admin/tournament", label: "大会情報" },
   { href: "/admin/teams", label: "チーム・リーグ分け" },
   { href: "/admin/matches", label: "対戦・結果" },
@@ -29,6 +31,27 @@ export function AdminShell({
   const router = useRouter();
   const [tournaments, setTournaments] = useState<TournamentSummary[]>([]);
   const [activeTournamentId, setActiveTournamentId] = useState("");
+  const [divisions, setDivisions] = useState<Division[]>([]);
+  const [activeDivisionId, setActiveDivisionId] = useState("");
+
+  const loadDivisions = useCallback(async (tournamentId: string) => {
+    const res = await fetch("/api/admin/divisions", {
+      cache: "no-store",
+      headers: { "X-Tournament-Id": tournamentId },
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json?.error ?? "部門一覧を取得できませんでした。");
+    const active = ((json.divisions ?? []) as Division[]).filter((item) => item.is_active);
+    setDivisions(active);
+    const selected = selectedDivisionId(tournamentId);
+    const next = active.find((item) => item.id === selected) ?? active[0];
+    if (next) {
+      if (selected !== next.id) selectDivision(tournamentId, next.id);
+      setActiveDivisionId(next.id);
+    } else {
+      setActiveDivisionId("");
+    }
+  }, []);
 
   useEffect(() => {
     setActiveTournamentId(selectedTournamentId() ?? "");
@@ -50,6 +73,22 @@ export function AdminShell({
       .catch(() => setTournaments([]));
   }, []);
 
+  useEffect(() => {
+    if (!activeTournamentId) return;
+    loadDivisions(activeTournamentId)
+      .catch(() => setDivisions([]));
+  }, [activeTournamentId, loadDivisions]);
+
+  useEffect(() => {
+    const onDivisionChange = () => {
+      if (!activeTournamentId) return;
+      setActiveDivisionId(selectedDivisionId(activeTournamentId) ?? "");
+      loadDivisions(activeTournamentId).catch(() => setDivisions([]));
+    };
+    window.addEventListener(DIVISION_CHANGE_EVENT, onDivisionChange);
+    return () => window.removeEventListener(DIVISION_CHANGE_EVENT, onDivisionChange);
+  }, [activeTournamentId, loadDivisions]);
+
   const logout = async () => {
     await fetch("/api/admin/session", { method: "DELETE" });
     router.push("/admin/login");
@@ -63,7 +102,7 @@ export function AdminShell({
           <span className="rounded bg-ball-500 px-2 py-0.5 text-xs font-black text-court-950">管理</span>
           <span className="text-sm font-bold">主催者メニュー</span>
           <div className="ml-auto flex items-center gap-2">
-            <Link href={activeTournamentId ? `/?tournament_id=${activeTournamentId}` : "/"} className="flex min-h-10 items-center rounded-lg px-3 text-xs font-bold text-court-100 hover:bg-white/10">
+            <Link href={activeTournamentId ? `/?tournament_id=${activeTournamentId}${activeDivisionId ? `&division_id=${activeDivisionId}` : ""}` : "/"} className="flex min-h-10 items-center rounded-lg px-3 text-xs font-bold text-court-100 hover:bg-white/10">
               参加者画面
             </Link>
             <button onClick={logout} className="min-h-10 rounded-lg px-3 text-xs font-bold text-court-100 hover:bg-white/10">
@@ -102,11 +141,31 @@ export function AdminShell({
               onChange={(e) => {
                 selectTournament(e.target.value);
                 setActiveTournamentId(e.target.value);
+                setActiveDivisionId("");
                 router.refresh();
               }}
             >
               {tournaments.map((tournament) => (
                 <option key={tournament.id} value={tournament.id}>{tournament.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        {divisions.length > 0 && (
+          <div className="mb-4">
+            <label className="label" htmlFor="admin-division-selector">管理する部門</label>
+            <select
+              id="admin-division-selector"
+              className="field"
+              value={activeDivisionId}
+              onChange={(e) => {
+                selectDivision(activeTournamentId, e.target.value);
+                setActiveDivisionId(e.target.value);
+                router.refresh();
+              }}
+            >
+              {divisions.map((division) => (
+                <option key={division.id} value={division.id}>{division.name}</option>
               ))}
             </select>
           </div>

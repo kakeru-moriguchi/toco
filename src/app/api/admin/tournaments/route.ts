@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { ensureLeagues } from "@/lib/data";
+import { createDefaultDivision, ensureLeagues } from "@/lib/data";
 import { errorMessage, fail, ok, requireAdmin } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
@@ -39,7 +39,8 @@ export async function POST(req: NextRequest) {
         .select("*")
         .single();
       if (error) throw new Error(error.message);
-      await ensureLeagues(data.id, data.league_count);
+      const division = await createDefaultDivision(data.id);
+      await ensureLeagues(data.id, division.id, data.league_count);
       return ok({ tournament: data });
     }
 

@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { clearResult, getState, getTournament, logMatchEvent, saveResult } from "@/lib/data";
-import { errorMessage, fail, ok, readSets, requireAdmin, tournamentIdFromRequest } from "@/lib/api";
+import { clearResult, getDivision, getState, getTournament, logMatchEvent, saveResult } from "@/lib/data";
+import { divisionIdFromRequest, errorMessage, fail, ok, readSets, requireAdmin, tournamentIdFromRequest } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +22,7 @@ export async function POST(req: NextRequest) {
   try {
     const db = supabaseAdmin();
     const tournament = await getTournament(tournamentIdFromRequest(req));
+    const division = await getDivision(tournament.id, divisionIdFromRequest(req));
     const body = await req.json();
     const action = String(body?.action ?? "");
     const id = String(body?.id ?? "");
@@ -46,8 +47,8 @@ export async function POST(req: NextRequest) {
       }
 
       const [{ data: league }, { data: teams }] = await Promise.all([
-        db.from("leagues").select("id").eq("id", leagueId).eq("tournament_id", tournament.id).is("tier_key", null).maybeSingle(),
-        db.from("teams").select("id, league_id").eq("tournament_id", tournament.id).in("id", [teamAId, teamBId]),
+        db.from("leagues").select("id").eq("id", leagueId).eq("tournament_id", tournament.id).eq("division_id", division.id).is("tier_key", null).maybeSingle(),
+        db.from("teams").select("id, league_id").eq("tournament_id", tournament.id).eq("division_id", division.id).in("id", [teamAId, teamBId]),
       ]);
       if (!league) return fail("選んだ予選リーグが見つかりません。画面を再読み込みしてください。");
       if ((teams ?? []).length !== 2 || (teams ?? []).some((team) => team.league_id !== leagueId)) {
@@ -59,6 +60,7 @@ export async function POST(req: NextRequest) {
         .from("matches")
         .insert({
           tournament_id: tournament.id,
+          division_id: division.id,
           stage: "league",
           league_id: leagueId,
           match_no: matchNo,
@@ -74,6 +76,7 @@ export async function POST(req: NextRequest) {
       await db.from("tournaments").update({ phase: "league" }).eq("id", tournament.id);
       await logMatchEvent({
         tournamentId: tournament.id,
+        divisionId: division.id,
         matchId: created.id,
         action: "manual_create",
         actor: "admin",
@@ -85,6 +88,7 @@ export async function POST(req: NextRequest) {
         .select("id, stage, tier_key, status, sets, score_a, score_b")
         .eq("id", id)
         .eq("tournament_id", tournament.id)
+        .eq("division_id", division.id)
         .maybeSingle();
       if (findError) throw new Error(findError.message);
       if (!match) return fail("削除する試合が見つかりません。画面を再読み込みしてください。");
@@ -103,14 +107,21 @@ export async function POST(req: NextRequest) {
         .from("matches")
         .delete()
         .eq("id", id)
-        .eq("tournament_id", tournament.id);
+        .eq("tournament_id", tournament.id)
+        .eq("division_id", division.id);
       if (deleteError) throw new Error(deleteError.message);
     } else if (action === "result") {
       const sets = readSets(body);
       if (sets.length === 0) return fail("スコアを入力してください。");
-      await saveResult({ matchId: id, sets, actor: "admin", tournamentId: tournament.id });
+      await saveResult({
+        matchId: id,
+        sets,
+        actor: "admin",
+        tournamentId: tournament.id,
+        divisionId: division.id,
+      });
     } else if (action === "clear") {
-      await clearResult(id, tournament.id);
+      await clearResult(id, tournament.id, division.id);
     } else if (action === "status") {
       const status = String(body.status ?? "");
       if (!["pending", "in_progress", "done"].includes(status)) return fail("状態の指定が不正です。");
@@ -121,9 +132,11 @@ export async function POST(req: NextRequest) {
         .from("matches")
         .update({ status, updated_at: new Date().toISOString() })
         .eq("id", id)
-        .eq("tournament_id", tournament.id);
+        .eq("tournament_id", tournament.id)
+        .eq("division_id", division.id);
       await logMatchEvent({
         tournamentId: tournament.id,
+        divisionId: division.id,
         matchId: id,
         action: "status",
         actor: "admin",
@@ -161,7 +174,8 @@ export async function POST(req: NextRequest) {
           .from("matches")
           .update(patch)
           .eq("id", matchId)
-          .eq("tournament_id", tournament.id);
+          .eq("tournament_id", tournament.id)
+          .eq("division_id", division.id);
         if (error) throw new Error(error.message);
       }
     } else if (action === "schedule") {
@@ -181,10 +195,11 @@ export async function POST(req: NextRequest) {
         .from("matches")
         .update(patch)
         .eq("id", id)
-        .eq("tournament_id", tournament.id);
+        .eq("tournament_id", tournament.id)
+        .eq("division_id", division.id);
       if (error) throw new Error(error.message);
     } else if (action === "move") {
-      const state = await getState(tournament.id);
+      const state = await getState(tournament.id, division.id);
       const ordered = [...state.matches].sort((a, b) => a.match_no - b.match_no);
       const index = ordered.findIndex((m) => m.id === id);
       if (index < 0) return fail("対象の試合が見つかりませんでした。");
@@ -214,7 +229,7 @@ export async function POST(req: NextRequest) {
       return fail("不明な操作です。");
     }
 
-    const state = await getState(tournament.id);
+    const state = await getState(tournament.id, division.id);
     return ok({ matches: state.matches });
   } catch (e) {
     return fail(errorMessage(e), 400);

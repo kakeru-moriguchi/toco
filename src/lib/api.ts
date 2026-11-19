@@ -24,6 +24,11 @@ export function tournamentIdFromRequest(req: NextRequest): string | null {
   return /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(value) ? value : null;
 }
 
+export function divisionIdFromRequest(req: NextRequest): string | null {
+  const value = req.headers.get("x-division-id")?.trim() ?? "";
+  return /^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(value) ? value : null;
+}
+
 export function errorMessage(e: unknown): string {
   if (e instanceof Error) return e.message;
   return "予期しないエラーが発生しました。";

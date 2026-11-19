@@ -1,11 +1,14 @@
 "use client";
 
 import { selectedTournamentId } from "./tournamentSelection";
+import { selectedDivisionId } from "./divisionSelection";
 
 function adminHeaders() {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const tournamentId = selectedTournamentId();
   if (tournamentId) headers["X-Tournament-Id"] = tournamentId;
+  const divisionId = selectedDivisionId(tournamentId);
+  if (divisionId) headers["X-Division-Id"] = divisionId;
   return headers;
 }
 

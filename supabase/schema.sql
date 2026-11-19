@@ -48,11 +48,29 @@ create index if not exists tournaments_active_idx
   on tournaments(archived_at, event_date desc, created_at desc);
 
 -- ------------------------------------------------------------
+-- 部門（初中級 / 中上級 / 50歳以上 など）
+-- ------------------------------------------------------------
+create table if not exists divisions (
+  id            uuid primary key default gen_random_uuid(),
+  tournament_id uuid not null references tournaments(id) on delete cascade,
+  name          text not null,
+  sort_order    int not null default 0,
+  is_active     boolean not null default true,
+  created_at    timestamptz not null default now(),
+  updated_at    timestamptz not null default now(),
+  unique (tournament_id, name),
+  unique (id, tournament_id)
+);
+create index if not exists divisions_tournament_idx
+  on divisions(tournament_id, is_active desc, sort_order, created_at);
+
+-- ------------------------------------------------------------
 -- リーグ（A / B / C / D ...）
 -- ------------------------------------------------------------
 create table if not exists leagues (
   id            uuid primary key default gen_random_uuid(),
   tournament_id uuid not null references tournaments(id) on delete cascade,
+  division_id   uuid not null references divisions(id) on delete restrict,
   name          text not null,                -- '①' など（表示は「①リーグ」）
   sort_order    int  not null default 0,
   -- 総当たり形式の級（例: Cリーグ）用。予選のリーグは null。
@@ -60,6 +78,7 @@ create table if not exists leagues (
   created_at    timestamptz not null default now()
 );
 create index if not exists leagues_tournament_idx on leagues(tournament_id, sort_order);
+create index if not exists leagues_division_idx on leagues(tournament_id, division_id, sort_order);
 create index if not exists leagues_tier_idx on leagues(tournament_id, tier_key);
 
 -- ------------------------------------------------------------
@@ -68,6 +87,7 @@ create index if not exists leagues_tier_idx on leagues(tournament_id, tier_key);
 create table if not exists teams (
   id            uuid primary key default gen_random_uuid(),
   tournament_id uuid not null references tournaments(id) on delete cascade,
+  division_id   uuid not null references divisions(id) on delete restrict,
   league_id     uuid references leagues(id) on delete set null,
   name          text not null,
   members       text not null default '',     -- 「山田/佐藤」のようなメンバー名
@@ -75,6 +95,7 @@ create table if not exists teams (
   created_at    timestamptz not null default now()
 );
 create index if not exists teams_tournament_idx on teams(tournament_id, sort_order);
+create index if not exists teams_division_idx on teams(tournament_id, division_id, sort_order);
 create index if not exists teams_league_idx on teams(league_id, sort_order);
 
 -- ------------------------------------------------------------
@@ -83,6 +104,7 @@ create index if not exists teams_league_idx on teams(league_id, sort_order);
 create table if not exists matches (
   id            uuid primary key default gen_random_uuid(),
   tournament_id uuid not null references tournaments(id) on delete cascade,
+  division_id   uuid not null references divisions(id) on delete restrict,
   stage         text not null check (stage in ('league','bracket')),
 
   -- リーグ戦用
@@ -126,6 +148,7 @@ create table if not exists matches (
   updated_at    timestamptz not null default now()
 );
 create index if not exists matches_tournament_idx on matches(tournament_id, match_no);
+create index if not exists matches_division_idx on matches(tournament_id, division_id, match_no);
 create index if not exists matches_league_idx on matches(league_id);
 create index if not exists matches_stage_idx on matches(tournament_id, stage, tier_key, round, bracket_index);
 
@@ -136,6 +159,7 @@ create index if not exists matches_stage_idx on matches(tournament_id, stage, ti
 create table if not exists match_events (
   id            uuid primary key default gen_random_uuid(),
   tournament_id uuid not null references tournaments(id) on delete cascade,
+  division_id   uuid not null references divisions(id) on delete restrict,
   match_id      uuid not null references matches(id) on delete cascade,
   action        text not null,          -- 'report' / 'admin_edit' / 'reset' / 'status'
   score_a       int,
@@ -145,6 +169,27 @@ create table if not exists match_events (
   created_at    timestamptz not null default now()
 );
 create index if not exists match_events_match_idx on match_events(match_id, created_at desc);
+create index if not exists match_events_division_idx on match_events(tournament_id, division_id, created_at desc);
+
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'leagues_division_tournament_fk') then
+    alter table leagues add constraint leagues_division_tournament_fk
+      foreign key (division_id, tournament_id) references divisions(id, tournament_id) on delete restrict;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'teams_division_tournament_fk') then
+    alter table teams add constraint teams_division_tournament_fk
+      foreign key (division_id, tournament_id) references divisions(id, tournament_id) on delete restrict;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'matches_division_tournament_fk') then
+    alter table matches add constraint matches_division_tournament_fk
+      foreign key (division_id, tournament_id) references divisions(id, tournament_id) on delete restrict;
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'match_events_division_tournament_fk') then
+    alter table match_events add constraint match_events_division_tournament_fk
+      foreign key (division_id, tournament_id) references divisions(id, tournament_id) on delete restrict;
+  end if;
+end $$;
 
 -- ------------------------------------------------------------
 -- 行レベルセキュリティ
@@ -153,27 +198,34 @@ create index if not exists match_events_match_idx on match_events(match_id, crea
 --   anon 向けの insert/update/delete ポリシーは意図的に作らない。
 -- ------------------------------------------------------------
 alter table tournaments  enable row level security;
+alter table divisions    enable row level security;
 alter table leagues      enable row level security;
 alter table teams        enable row level security;
 alter table matches      enable row level security;
 alter table match_events enable row level security;
 
 drop policy if exists "public read tournaments"  on tournaments;
+drop policy if exists "public read divisions"    on divisions;
 drop policy if exists "public read leagues"      on leagues;
 drop policy if exists "public read teams"        on teams;
 drop policy if exists "public read matches"      on matches;
 
 create policy "public read tournaments" on tournaments for select using (true);
+create policy "public read divisions"   on divisions   for select using (true);
 create policy "public read leagues"     on leagues     for select using (true);
 create policy "public read teams"       on teams       for select using (true);
 create policy "public read matches"     on matches     for select using (true);
 -- match_events は参加者に見せないので select ポリシーを作らない（＝anonからは読めない）
+
+grant select on table divisions to anon, authenticated;
+grant all privileges on table divisions to service_role;
 
 -- ------------------------------------------------------------
 -- リアルタイム配信の対象テーブル
 --   （結果が入力されたら他のスマホにも自動反映するために必要）
 -- ------------------------------------------------------------
 alter table tournaments replica identity full;
+alter table divisions   replica identity full;
 alter table leagues     replica identity full;
 alter table teams       replica identity full;
 alter table matches     replica identity full;
@@ -181,6 +233,7 @@ alter table matches     replica identity full;
 do $$
 begin
   begin execute 'alter publication supabase_realtime add table tournaments'; exception when duplicate_object then null; end;
+  begin execute 'alter publication supabase_realtime add table divisions';   exception when duplicate_object then null; end;
   begin execute 'alter publication supabase_realtime add table leagues';     exception when duplicate_object then null; end;
   begin execute 'alter publication supabase_realtime add table teams';       exception when duplicate_object then null; end;
   begin execute 'alter publication supabase_realtime add table matches';     exception when duplicate_object then null; end;
@@ -192,3 +245,7 @@ end $$;
 insert into tournaments (name, venue, note)
 select '第1回 ピックルボール大会', '', ''
 where not exists (select 1 from tournaments);
+
+insert into divisions (tournament_id, name, sort_order)
+select id, 'メイン部門', 0 from tournaments
+where not exists (select 1 from divisions where divisions.tournament_id = tournaments.id);

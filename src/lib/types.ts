@@ -123,9 +123,20 @@ export type TournamentSummary = Pick<
   "id" | "name" | "event_date" | "venue" | "phase" | "archived_at" | "created_at" | "updated_at"
 >;
 
+export type Division = {
+  id: string;
+  tournament_id: string;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 export type League = {
   id: string;
   tournament_id: string;
+  division_id: string;
   name: string;
   sort_order: number;
   /** 総当たり形式の級のリーグなら級のキー。予選リーグは null。 */
@@ -135,6 +146,7 @@ export type League = {
 export type Team = {
   id: string;
   tournament_id: string;
+  division_id: string;
   league_id: string | null;
   name: string;
   members: string;
@@ -144,6 +156,7 @@ export type Team = {
 export type Match = {
   id: string;
   tournament_id: string;
+  division_id: string;
   stage: Stage;
   league_id: string | null;
   /** トーナメントの場合、どの級の試合か（BracketTier.key）。リーグ戦は null */
@@ -176,6 +189,8 @@ export type Match = {
 /** 参加者画面が使う「大会の全状態」。1回の取得でどの画面も描ける。 */
 export type TournamentState = {
   tournament: Tournament;
+  division: Division;
+  divisions: Division[];
   leagues: League[];
   teams: Team[];
   matches: Match[];
