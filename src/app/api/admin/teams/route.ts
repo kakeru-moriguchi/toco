@@ -12,7 +12,8 @@ export const dynamic = "force-dynamic";
  *   add        … 1チーム追加
  *   bulk_add   … 改行区切りでまとめて追加
  *   update     … 名前 / メンバー / 所属リーグ の更新
- *   remove     … 削除
+ *   move_division … 別部門へ移動（試合がない場合のみ）
+ *   remove     … 削除（試合がない場合のみ）
  *   auto_assign… 登録順にA,B,C,D…へ均等に振り分け
  *   shuffle    … ランダムに振り分け
  */
@@ -87,10 +88,24 @@ export async function POST(req: NextRequest) {
     } else if (action === "update") {
       const id = String(body.id ?? "");
       if (!id) return fail("対象のチームが指定されていません。");
+      const { data: currentTeam, error: teamError } = await db
+        .from("teams")
+        .select("id, league_id")
+        .eq("id", id)
+        .eq("tournament_id", tournament.id)
+        .eq("division_id", division.id)
+        .maybeSingle();
+      if (teamError) throw new Error(teamError.message);
+      if (!currentTeam) return fail("チームが見つかりません。画面を再読み込みしてください。");
       const patch: Record<string, unknown> = {};
-      if (typeof body.name === "string") patch.name = body.name.trim().slice(0, 60);
+      if (typeof body.name === "string") {
+        const name = body.name.trim();
+        if (!name) return fail("チーム名を入力してください。");
+        patch.name = name.slice(0, 60);
+      }
       if (typeof body.members === "string") patch.members = body.members.slice(0, 120);
       if (body.league_id !== undefined) {
+        const nextLeagueId = body.league_id ? String(body.league_id) : null;
         if (body.league_id) {
           const { data: league } = await db
             .from("leagues")
@@ -101,7 +116,19 @@ export async function POST(req: NextRequest) {
             .maybeSingle();
           if (!league) return fail("選択中の部門に属さないリーグです。");
         }
-        patch.league_id = body.league_id || null;
+        if (nextLeagueId !== currentTeam.league_id) {
+          const { count, error } = await db
+            .from("matches")
+            .select("id", { count: "exact", head: true })
+            .eq("tournament_id", tournament.id)
+            .eq("division_id", division.id)
+            .or(`team_a_id.eq.${id},team_b_id.eq.${id}`);
+          if (error) throw new Error(error.message);
+          if ((count ?? 0) > 0) {
+            return fail("このチームには試合があるため、リーグを変更できません。先に対戦カードをリセットしてください。", 409);
+          }
+        }
+        patch.league_id = nextLeagueId;
       }
       if (body.sort_order !== undefined) patch.sort_order = Math.trunc(Number(body.sort_order)) || 0;
       const { error } = await db
@@ -111,16 +138,82 @@ export async function POST(req: NextRequest) {
         .eq("tournament_id", tournament.id)
         .eq("division_id", division.id);
       if (error) throw new Error(error.message);
-    } else if (action === "remove") {
+    } else if (action === "move_division") {
       const id = String(body.id ?? "");
-      if (!id) return fail("対象のチームが指定されていません。");
-      // そのチームが関わる試合も一緒に削除する（残しておくと空欄の試合になるため）
-      await db
+      const targetDivisionId = String(body.target_division_id ?? "");
+      if (!id || !targetDivisionId) return fail("移動先の部門を選択してください。");
+      if (targetDivisionId === division.id) return fail("現在と同じ部門が選択されています。");
+
+      const [{ data: team, error: teamError }, { data: target, error: targetError }] = await Promise.all([
+        db
+          .from("teams")
+          .select("id")
+          .eq("id", id)
+          .eq("tournament_id", tournament.id)
+          .eq("division_id", division.id)
+          .maybeSingle(),
+        db
+          .from("divisions")
+          .select("id")
+          .eq("id", targetDivisionId)
+          .eq("tournament_id", tournament.id)
+          .eq("is_active", true)
+          .maybeSingle(),
+      ]);
+      if (teamError) throw new Error(teamError.message);
+      if (targetError) throw new Error(targetError.message);
+      if (!team) return fail("移動するチームが見つかりません。画面を再読み込みしてください。");
+      if (!target) return fail("移動先の部門が見つからないか、無効になっています。");
+
+      const { count, error: matchError } = await db
         .from("matches")
-        .delete()
+        .select("id", { count: "exact", head: true })
         .eq("tournament_id", tournament.id)
         .eq("division_id", division.id)
         .or(`team_a_id.eq.${id},team_b_id.eq.${id}`);
+      if (matchError) throw new Error(matchError.message);
+      if ((count ?? 0) > 0) {
+        return fail("このチームには試合があるため、部門を移動できません。先に対戦カードをリセットしてください。", 409);
+      }
+
+      const { data: last, error: orderError } = await db
+        .from("teams")
+        .select("sort_order")
+        .eq("tournament_id", tournament.id)
+        .eq("division_id", targetDivisionId)
+        .order("sort_order", { ascending: false })
+        .limit(1);
+      if (orderError) throw new Error(orderError.message);
+      const nextOrder = (last?.[0]?.sort_order ?? -1) + 1;
+      const { error } = await db
+        .from("teams")
+        .update({ division_id: targetDivisionId, league_id: null, sort_order: nextOrder })
+        .eq("id", id)
+        .eq("tournament_id", tournament.id)
+        .eq("division_id", division.id);
+      if (error) throw new Error(error.message);
+    } else if (action === "remove") {
+      const id = String(body.id ?? "");
+      if (!id) return fail("対象のチームが指定されていません。");
+      const { data: team, error: teamError } = await db
+        .from("teams")
+        .select("id")
+        .eq("id", id)
+        .eq("tournament_id", tournament.id)
+        .eq("division_id", division.id)
+        .maybeSingle();
+      if (teamError) throw new Error(teamError.message);
+      if (!team) return fail("削除するチームが見つかりません。画面を再読み込みしてください。");
+      const { count, error: matchError } = await db
+        .from("matches")
+        .select("id", { count: "exact", head: true })
+        .eq("tournament_id", tournament.id)
+        .eq("division_id", division.id)
+        .or(`team_a_id.eq.${id},team_b_id.eq.${id}`);
+      if (matchError) throw new Error(matchError.message);
+      if ((count ?? 0) > 0) {
+        return fail("このチームには試合があるため削除できません。先に対戦カードをリセットしてください。", 409);
+      }
       const { error } = await db
         .from("teams")
         .delete()
@@ -129,6 +222,15 @@ export async function POST(req: NextRequest) {
         .eq("division_id", division.id);
       if (error) throw new Error(error.message);
     } else if (action === "auto_assign" || action === "shuffle") {
+      const { count, error: matchError } = await db
+        .from("matches")
+        .select("id", { count: "exact", head: true })
+        .eq("tournament_id", tournament.id)
+        .eq("division_id", division.id);
+      if (matchError) throw new Error(matchError.message);
+      if ((count ?? 0) > 0) {
+        return fail("対戦カード作成後はリーグを振り分け直せません。先に対戦カードをリセットしてください。", 409);
+      }
       const leagues = await ensureLeagues(tournament.id, division.id, tournament.league_count);
       const state = await getState(tournament.id, division.id);
       let teams: Team[] = [...state.teams].sort((a, b) => a.sort_order - b.sort_order);

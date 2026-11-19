@@ -93,7 +93,7 @@ export default function AdminTeamsPage() {
           <section className="card space-y-3 p-4">
             <h2 className="text-sm font-black text-court-800">リーグ分け</h2>
             <p className="text-xs text-ink-500">
-              現在 {state.teams.length} チーム / {state.leagues.length} リーグ。
+              {state.division.name}：現在 {state.teams.length} チーム / {state.leagues.length} リーグ。
               {unassigned.length > 0 && ` 未設定 ${unassigned.length} チーム。`}
             </p>
             <div className="grid gap-2 sm:grid-cols-2">
@@ -204,6 +204,7 @@ export default function AdminTeamsPage() {
                           <select
                             className="field w-auto min-w-[140px]"
                             value={team.league_id ?? ""}
+                            disabled={busy}
                             onChange={(e) =>
                               call({ action: "update", id: team.id, league_id: e.target.value }, "変更しました")
                             }
@@ -212,6 +213,27 @@ export default function AdminTeamsPage() {
                             {state.leagues.map((l) => (
                               <option key={l.id} value={l.id}>
                                 {l.name}リーグ
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            className="field w-auto min-w-[150px]"
+                            value={team.division_id}
+                            disabled={busy || state.divisions.filter((item) => item.is_active).length < 2}
+                            aria-label={`${team.name}の所属部門`}
+                            onChange={(e) => {
+                              const target = state.divisions.find((item) => item.id === e.target.value);
+                              if (!target || target.id === team.division_id) return;
+                              if (!confirm(`「${team.name}」を「${target.name}」へ移動します。移動後はリーグ未設定になります。よろしいですか？`)) return;
+                              call(
+                                { action: "move_division", id: team.id, target_division_id: target.id },
+                                `${target.name}へ移動しました`
+                              );
+                            }}
+                          >
+                            {state.divisions.filter((item) => item.is_active).map((division) => (
+                              <option key={division.id} value={division.id}>
+                                {division.name}
                               </option>
                             ))}
                           </select>
@@ -236,7 +258,7 @@ export default function AdminTeamsPage() {
                             className="btn-danger btn-sm ml-auto"
                             disabled={busy}
                             onClick={() => {
-                              if (confirm(`「${team.name}」を削除します。関係する試合も削除されます。よろしいですか？`)) {
+                              if (confirm(`「${team.name}」を削除します。試合が登録されている場合は削除できません。よろしいですか？`)) {
                                 call({ action: "remove", id: team.id }, "削除しました");
                               }
                             }}

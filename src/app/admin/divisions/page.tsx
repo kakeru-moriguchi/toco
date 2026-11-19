@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AdminShell, Toast } from "@/components/AdminShell";
 import { adminPost } from "@/lib/adminApi";
@@ -11,16 +11,36 @@ import { LoadingBlock } from "@/components/ui";
 
 export default function AdminDivisionsPage() {
   const router = useRouter();
-  const { state, loading, refresh } = useTournamentState();
+  const { state, loading, refresh, updatedAt } = useTournamentState();
   const [name, setName] = useState("");
   const [editing, setEditing] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "error" } | null>(null);
+  const [teamCounts, setTeamCounts] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    if (!state?.tournament.id) return;
+    fetch("/api/admin/divisions", {
+      cache: "no-store",
+      headers: { "X-Tournament-Id": state.tournament.id },
+    })
+      .then(async (res) => {
+        const json = await res.json();
+        if (!res.ok) throw new Error(json?.error ?? "部門一覧を取得できませんでした。");
+        return (json.divisions ?? []) as Array<{ id: string; team_count?: number }>;
+      })
+      .then((items) => setTeamCounts(Object.fromEntries(items.map((item) => [item.id, item.team_count ?? 0]))))
+      .catch(() => setTeamCounts({}));
+  }, [state?.tournament.id, updatedAt]);
 
   const run = async (body: Record<string, unknown>, message: string) => {
     setBusy(true);
     try {
       const result = await adminPost("/api/admin/divisions", body);
+      const divisions = (result.divisions ?? []) as Array<{ id: string; team_count?: number }>;
+      if (divisions.length > 0) {
+        setTeamCounts(Object.fromEntries(divisions.map((item) => [item.id, item.team_count ?? 0])));
+      }
       await refresh();
       setToast({ msg: message, tone: "ok" });
       return result;
@@ -72,6 +92,7 @@ export default function AdminDivisionsPage() {
                     onChange={(e) => setEditing((current) => ({ ...current, [division.id]: e.target.value }))}
                   />
                   {selected && <span className="chip bg-ball-500 text-court-950">管理中</span>}
+                  <span className="chip bg-ball-100 text-ink-700">{teamCounts[division.id] ?? 0} チーム</span>
                   {!division.is_active && <span className="chip bg-ball-100 text-ink-700">無効</span>}
                 </div>
                 <div className="mt-3 flex flex-wrap justify-end gap-2">
