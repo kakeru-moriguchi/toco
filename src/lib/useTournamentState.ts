@@ -8,6 +8,7 @@ import {
   selectTournament,
   TOURNAMENT_CHANGE_EVENT,
 } from "./tournamentSelection";
+import { DIVISION_CHANGE_EVENT, selectedDivisionId, selectDivision } from "./divisionSelection";
 
 /**
  * 大会の全状態を取得し、他の端末での更新を自動で反映するフック。
@@ -31,12 +32,23 @@ export function useTournamentState() {
       const urlTournamentId = new URLSearchParams(window.location.search).get("tournament_id");
       if (urlTournamentId && urlTournamentId !== selectedTournamentId()) selectTournament(urlTournamentId);
       const tournamentId = urlTournamentId || selectedTournamentId();
-      const query = tournamentId ? `?tournament_id=${encodeURIComponent(tournamentId)}` : "";
+      const urlDivisionId = new URLSearchParams(window.location.search).get("division_id");
+      if (tournamentId && urlDivisionId && urlDivisionId !== selectedDivisionId(tournamentId)) {
+        selectDivision(tournamentId, urlDivisionId);
+      }
+      const divisionId = urlDivisionId || selectedDivisionId(tournamentId);
+      const params = new URLSearchParams();
+      if (tournamentId) params.set("tournament_id", tournamentId);
+      if (divisionId) params.set("division_id", divisionId);
+      const query = params.size > 0 ? `?${params.toString()}` : "";
       const res = await fetch(`/api/state${query}`, { cache: "no-store" });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? "データを取得できませんでした。");
       setState(json as TournamentState);
       if (!tournamentId && json?.tournament?.id) selectTournament(json.tournament.id);
+      if (json?.tournament?.id && !divisionId && json?.division?.id) {
+        selectDivision(json.tournament.id, json.division.id);
+      }
       setUpdatedAt(new Date());
       setError(null);
     } catch (e) {
@@ -59,6 +71,7 @@ export function useTournamentState() {
         .on("postgres_changes", { event: "*", schema: "public", table: "teams" }, () => refresh())
         .on("postgres_changes", { event: "*", schema: "public", table: "leagues" }, () => refresh())
         .on("postgres_changes", { event: "*", schema: "public", table: "tournaments" }, () => refresh())
+        .on("postgres_changes", { event: "*", schema: "public", table: "divisions" }, () => refresh())
         .subscribe();
     }
 
@@ -69,12 +82,14 @@ export function useTournamentState() {
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
     window.addEventListener(TOURNAMENT_CHANGE_EVENT, refresh);
+    window.addEventListener(DIVISION_CHANGE_EVENT, refresh);
 
     return () => {
       clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
       window.removeEventListener(TOURNAMENT_CHANGE_EVENT, refresh);
+      window.removeEventListener(DIVISION_CHANGE_EVENT, refresh);
       if (client && channel) client.removeChannel(channel);
     };
   }, [refresh]);

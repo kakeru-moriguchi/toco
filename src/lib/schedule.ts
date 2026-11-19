@@ -49,6 +49,8 @@ export type ScheduleOptions = {
   minutesPerMatch: number;
   /** コート名の配列。例: ['1','2','3','4'] */
   courts: string[];
+  /** 他部門など、すでに使用が確定しているコート枠。 */
+  reserved?: { court: string; scheduledAt: string }[];
 };
 
 export type ScheduleAssignment = {
@@ -83,28 +85,39 @@ export function assignSchedule(
   const start = parseTime(options.startTime);
   const step = Math.max(5, options.minutesPerMatch || 20);
 
-  // slotIndex -> そのスロットに入っているチームID
+  // slotIndex -> そのスロットに入っているチームID / 使用中コート
   const busy: Map<number, Set<string>> = new Map();
-  const used: Map<number, number> = new Map(); // slotIndex -> 使用コート数
+  const usedCourts: Map<number, Set<string>> = new Map();
   const result: ScheduleAssignment[] = [];
+
+  for (const reservation of options.reserved ?? []) {
+    const delta = parseTime(reservation.scheduledAt) - start;
+    if (delta < 0 || delta % step !== 0 || !courts.includes(reservation.court)) continue;
+    const slot = delta / step;
+    const used = usedCourts.get(slot) ?? new Set<string>();
+    used.add(reservation.court);
+    usedCourts.set(slot, used);
+  }
 
   matches.forEach((m, i) => {
     let slot = 0;
     for (;;) {
       const teams = busy.get(slot) ?? new Set<string>();
-      const count = used.get(slot) ?? 0;
+      const occupied = usedCourts.get(slot) ?? new Set<string>();
+      const court = courts.find((candidate) => !occupied.has(candidate));
       const conflict =
         (m.teamAId !== null && teams.has(m.teamAId)) ||
         (m.teamBId !== null && teams.has(m.teamBId));
-      if (count < courts.length && !conflict) {
+      if (court && !conflict) {
         if (m.teamAId) teams.add(m.teamAId);
         if (m.teamBId) teams.add(m.teamBId);
         busy.set(slot, teams);
-        used.set(slot, count + 1);
+        occupied.add(court);
+        usedCourts.set(slot, occupied);
         result.push({
           id: m.id,
           matchNo: i + 1,
-          court: courts[count],
+          court,
           scheduledAt: formatTime(start + slot * step),
         });
         break;

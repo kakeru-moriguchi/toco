@@ -39,7 +39,7 @@ export default function AdminHomePage() {
       {state && stats && (
         <div className="space-y-4">
           <section className="card p-4">
-            <p className="text-xs font-bold text-ink-500">開催中の大会</p>
+            <p className="text-xs font-bold text-ink-500">開催中の大会 · {state.division.name}</p>
             <h2 className="text-lg font-black text-court-900">{state.tournament.name}</h2>
             <p className="text-sm text-ink-700">
               {formatDate(state.tournament.event_date)} {state.tournament.venue}

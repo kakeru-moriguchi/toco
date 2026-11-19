@@ -3,7 +3,7 @@ import { assignSchedule, roundRobin } from "./schedule";
 import { planBracketsFromLeagues, resolveBracketProgress, type PlannedTier } from "./bracket";
 import { normalizeTiers } from "./tiers";
 import { normalizeSets, validateSets } from "./score";
-import type { League, Match, SetScore, Team, Tournament, TournamentState } from "./types";
+import type { Division, League, Match, SetScore, Team, Tournament, TournamentState } from "./types";
 
 /**
  * サーバー側のデータ操作。
@@ -46,19 +46,57 @@ export async function getTournament(tournamentId?: string | null): Promise<Tourn
   return toTournament(data[0]);
 }
 
-export async function getState(tournamentId?: string | null): Promise<TournamentState> {
+export async function getDivisions(tournamentId: string, includeInactive = true): Promise<Division[]> {
+  const db = supabaseAdmin();
+  let query = db.from("divisions").select("*").eq("tournament_id", tournamentId);
+  if (!includeInactive) query = query.eq("is_active", true);
+  const { data, error } = await query.order("sort_order").order("created_at");
+  if (error) throw new Error(error.message);
+  return (data ?? []) as Division[];
+}
+
+export async function createDefaultDivision(tournamentId: string): Promise<Division> {
+  const db = supabaseAdmin();
+  const current = await getDivisions(tournamentId);
+  if (current[0]) return current[0];
+  const { data, error } = await db
+    .from("divisions")
+    .insert({ tournament_id: tournamentId, name: "メイン部門", sort_order: 0 })
+    .select("*")
+    .single();
+  if (error) throw new Error(error.message);
+  return data as Division;
+}
+
+export async function getDivision(tournamentId: string, divisionId?: string | null): Promise<Division> {
+  const divisions = await getDivisions(tournamentId);
+  const division = divisionId
+    ? divisions.find((item) => item.id === divisionId)
+    : divisions.find((item) => item.is_active);
+  if (!division) throw new Error("対象の部門が見つかりませんでした。");
+  return division;
+}
+
+export async function getState(
+  tournamentId?: string | null,
+  divisionId?: string | null
+): Promise<TournamentState> {
   const db = supabaseAdmin();
   const tournament = await getTournament(tournamentId);
+  const divisions = await getDivisions(tournament.id);
+  const division = await getDivision(tournament.id, divisionId);
   const [leagues, teams, matches] = await Promise.all([
-    db.from("leagues").select("*").eq("tournament_id", tournament.id).order("sort_order"),
-    db.from("teams").select("*").eq("tournament_id", tournament.id).order("sort_order"),
-    db.from("matches").select("*").eq("tournament_id", tournament.id).order("match_no"),
+    db.from("leagues").select("*").eq("tournament_id", tournament.id).eq("division_id", division.id).order("sort_order"),
+    db.from("teams").select("*").eq("tournament_id", tournament.id).eq("division_id", division.id).order("sort_order"),
+    db.from("matches").select("*").eq("tournament_id", tournament.id).eq("division_id", division.id).order("match_no"),
   ]);
   if (leagues.error) throw new Error(leagues.error.message);
   if (teams.error) throw new Error(teams.error.message);
   if (matches.error) throw new Error(matches.error.message);
   return {
     tournament,
+    division,
+    divisions,
     leagues: (leagues.data ?? []) as League[],
     teams: (teams.data ?? []) as Team[],
     matches: (matches.data ?? []).map((m) => toMatch(m as Record<string, unknown>)),
@@ -67,6 +105,7 @@ export async function getState(tournamentId?: string | null): Promise<Tournament
 
 export async function logMatchEvent(params: {
   tournamentId: string;
+  divisionId: string;
   matchId: string;
   action: string;
   scoreA?: number | null;
@@ -77,6 +116,7 @@ export async function logMatchEvent(params: {
   const db = supabaseAdmin();
   await db.from("match_events").insert({
     tournament_id: params.tournamentId,
+    division_id: params.divisionId,
     match_id: params.matchId,
     action: params.action,
     score_a: params.scoreA ?? null,
@@ -95,12 +135,13 @@ export function defaultLeagueName(index: number): string {
 }
 
 /** 予選のリーグだけを返す（総当たり形式の級のリーグは除く） */
-export async function getQualifyingLeagues(tournamentId: string): Promise<League[]> {
+export async function getQualifyingLeagues(tournamentId: string, divisionId: string): Promise<League[]> {
   const db = supabaseAdmin();
   const { data } = await db
     .from("leagues")
     .select("*")
     .eq("tournament_id", tournamentId)
+    .eq("division_id", divisionId)
     .is("tier_key", null)
     .order("sort_order");
   return (data ?? []) as League[];
@@ -110,14 +151,14 @@ export async function getQualifyingLeagues(tournamentId: string): Promise<League
  * 予選のリーグを必要数だけ用意する（①, ②, ③ ...）。
  * 総当たり形式の級のリーグ（tier_key あり）はここでは触らない。
  */
-export async function ensureLeagues(tournamentId: string, count: number): Promise<League[]> {
+export async function ensureLeagues(tournamentId: string, divisionId: string, count: number): Promise<League[]> {
   const db = supabaseAdmin();
-  const current = await getQualifyingLeagues(tournamentId);
+  const current = await getQualifyingLeagues(tournamentId, divisionId);
 
   if (current.length < count) {
     const rows = [];
     for (let i = current.length; i < count; i++) {
-      rows.push({ tournament_id: tournamentId, name: defaultLeagueName(i), sort_order: i });
+      rows.push({ tournament_id: tournamentId, division_id: divisionId, name: defaultLeagueName(i), sort_order: i });
     }
     if (rows.length > 0) await db.from("leagues").insert(rows);
   } else if (current.length > count) {
@@ -125,19 +166,19 @@ export async function ensureLeagues(tournamentId: string, count: number): Promis
     if (remove.length > 0) await db.from("leagues").delete().in("id", remove);
   }
 
-  return getQualifyingLeagues(tournamentId);
+  return getQualifyingLeagues(tournamentId, divisionId);
 }
 
 /**
  * リーグ戦の対戦カードを作り直す。
  * 既存のリーグ戦結果は消えるので、管理画面では確認ダイアログを出している。
  */
-export async function regenerateLeagueMatches(tournamentId: string) {
+export async function regenerateLeagueMatches(tournamentId: string, divisionId: string) {
   const db = supabaseAdmin();
   const tournament = await getTournament(tournamentId);
   const [leagues, { data: teamData }] = await Promise.all([
-    getQualifyingLeagues(tournamentId),
-    db.from("teams").select("*").eq("tournament_id", tournamentId).order("sort_order"),
+    getQualifyingLeagues(tournamentId, divisionId),
+    db.from("teams").select("*").eq("tournament_id", tournamentId).eq("division_id", divisionId).order("sort_order"),
   ]);
   const teams = (teamData ?? []) as Team[];
 
@@ -173,6 +214,7 @@ export async function regenerateLeagueMatches(tournamentId: string) {
 
   const rows = drafts.map((d, i) => ({
     tournament_id: tournamentId,
+    division_id: divisionId,
     stage: "league" as const,
     league_id: d.leagueId,
     round: d.round, // 進行順の並べ替えに使う
@@ -185,7 +227,7 @@ export async function regenerateLeagueMatches(tournamentId: string) {
   const { data: inserted, error } = await db.from("matches").insert(rows).select("*");
   if (error) throw new Error(error.message);
 
-  await autoAssignSchedule(tournamentId, "qualifying", {
+  await autoAssignSchedule(tournamentId, divisionId, "qualifying", {
     startTime: tournament.start_time,
     minutesPerMatch: tournament.minutes_per_match,
     courts: tournament.courts,
@@ -202,14 +244,19 @@ export async function regenerateLeagueMatches(tournamentId: string) {
  */
 export async function autoAssignSchedule(
   tournamentId: string,
+  divisionId: string,
   phase: "qualifying" | "finals",
   options: { startTime: string; minutesPerMatch: number; courts: string[] }
 ) {
   const db = supabaseAdmin();
-  const qualifyingLeagueIds = new Set((await getQualifyingLeagues(tournamentId)).map((l) => l.id));
+  const qualifyingLeagueIds = new Set((await getQualifyingLeagues(tournamentId, divisionId)).map((l) => l.id));
 
-  const { data } = await db.from("matches").select("*").eq("tournament_id", tournamentId);
-  const all = (data ?? []) as Match[];
+  const { data: tournamentMatchData } = await db
+    .from("matches")
+    .select("*")
+    .eq("tournament_id", tournamentId);
+  const tournamentMatches = (tournamentMatchData ?? []) as Match[];
+  const all = tournamentMatches.filter((match) => match.division_id === divisionId);
 
   const isQualifying = (m: Match) =>
     m.stage === "league" && m.league_id !== null && qualifyingLeagueIds.has(m.league_id);
@@ -242,7 +289,13 @@ export async function autoAssignSchedule(
 
   const assignments = assignSchedule(
     ordered.map((m) => ({ id: m.id, teamAId: m.team_a_id, teamBId: m.team_b_id })),
-    options
+    {
+      ...options,
+      reserved: tournamentMatches
+        .filter((match) => !matches.some((target) => target.id === match.id))
+        .filter((match) => match.court && match.scheduled_at)
+        .map((match) => ({ court: match.court, scheduledAt: match.scheduled_at })),
+    }
   );
 
   for (const a of assignments) {
@@ -267,9 +320,13 @@ export async function autoAssignSchedule(
  *
  * 何度実行しても同じ結果になるよう、先に前回ぶんを全部消してから作り直す。
  */
-export async function generateBracket(tournamentId: string, options?: { startTime?: string }) {
+export async function generateBracket(
+  tournamentId: string,
+  divisionId: string,
+  options?: { startTime?: string }
+) {
   const db = supabaseAdmin();
-  const state = await getState(tournamentId);
+  const state = await getState(tournamentId, divisionId);
   const { tournament, teams, matches } = state;
   const qualifyingLeagues = state.leagues.filter((l) => l.tier_key === null);
 
@@ -290,7 +347,12 @@ export async function generateBracket(tournamentId: string, options?: { startTim
   }
 
   // 前回作った決勝ラウンドを消す（トーナメントの試合と、総当たり級のリーグごと）
-  await db.from("matches").delete().eq("tournament_id", tournamentId).eq("stage", "bracket");
+  await db
+    .from("matches")
+    .delete()
+    .eq("tournament_id", tournamentId)
+    .eq("division_id", divisionId)
+    .eq("stage", "bracket");
   const oldTierLeagues = state.leagues.filter((l) => l.tier_key !== null);
   if (oldTierLeagues.length > 0) {
     await db.from("leagues").delete().in("id", oldTierLeagues.map((l) => l.id));
@@ -300,11 +362,11 @@ export async function generateBracket(tournamentId: string, options?: { startTim
   for (const plan of buildable) {
     total +=
       plan.tier.format === "league"
-        ? await createTierLeague(tournamentId, plan)
-        : await createTierBracket(tournamentId, plan);
+        ? await createTierLeague(tournamentId, divisionId, plan)
+        : await createTierBracket(tournamentId, divisionId, plan);
   }
 
-  await autoAssignSchedule(tournamentId, "finals", {
+  await autoAssignSchedule(tournamentId, divisionId, "finals", {
     startTime: options?.startTime || tournament.start_time,
     minutesPerMatch: tournament.minutes_per_match,
     courts: tournament.courts,
@@ -330,12 +392,17 @@ export async function generateBracket(tournamentId: string, options?: { startTim
 }
 
 /** トーナメント形式の級を作る。作った試合数を返す。 */
-async function createTierBracket(tournamentId: string, plan: PlannedTier): Promise<number> {
+async function createTierBracket(
+  tournamentId: string,
+  divisionId: string,
+  plan: PlannedTier
+): Promise<number> {
   const db = supabaseAdmin();
 
   // 先に空の試合を作ってIDを得てから、次戦へのリンクを張る
   const rows = plan.planned.map((p) => ({
     tournament_id: tournamentId,
+    division_id: divisionId,
     stage: "bracket" as const,
     tier_key: plan.tier.key,
     round: p.round,
@@ -386,13 +453,18 @@ async function createTierBracket(tournamentId: string, plan: PlannedTier): Promi
  * その級専用のリーグを1つ作り、予選リーグとまったく同じ仕組みで総当たり表を作るので、
  * 順位計算・順位表・結果入力はすべて既存のものがそのまま使える。
  */
-async function createTierLeague(tournamentId: string, plan: PlannedTier): Promise<number> {
+async function createTierLeague(
+  tournamentId: string,
+  divisionId: string,
+  plan: PlannedTier
+): Promise<number> {
   const db = supabaseAdmin();
 
   const { data: leagueRow, error: leagueError } = await db
     .from("leagues")
     .insert({
       tournament_id: tournamentId,
+      division_id: divisionId,
       name: plan.tier.name,
       tier_key: plan.tier.key,
       sort_order: 1000, // 予選リーグより後ろに置く
@@ -409,6 +481,7 @@ async function createTierLeague(tournamentId: string, plan: PlannedTier): Promis
     .sort((a, b) => a.round - b.round)
     .map((pair) => ({
       tournament_id: tournamentId,
+      division_id: divisionId,
       stage: "league" as const,
       league_id: (leagueRow as League).id,
       tier_key: plan.tier.key,
@@ -428,12 +501,13 @@ async function createTierLeague(tournamentId: string, plan: PlannedTier): Promis
  * トーナメント表の進出状況を最初から計算し直してDBへ反映する。
  * 計算そのものは lib/bracket.ts の純粋関数が担当。
  */
-export async function recomputeBracket(tournamentId: string) {
+export async function recomputeBracket(tournamentId: string, divisionId: string) {
   const db = supabaseAdmin();
   const { data } = await db
     .from("matches")
     .select("*")
     .eq("tournament_id", tournamentId)
+    .eq("division_id", divisionId)
     .eq("stage", "bracket")
     .order("round");
   const matches = (data ?? []) as Match[];
@@ -454,6 +528,7 @@ export type ResultInput = {
   actor: "team" | "admin";
   /** 管理画面からの操作時に、選択大会以外の試合更新を防ぐ。 */
   tournamentId?: string;
+  divisionId?: string;
 };
 
 /**
@@ -471,6 +546,9 @@ export async function saveResult(input: ResultInput): Promise<Match> {
   const match = found as Match;
   if (input.tournamentId && match.tournament_id !== input.tournamentId) {
     throw new Error("選択中の大会に属さない試合です。");
+  }
+  if (input.divisionId && match.division_id !== input.divisionId) {
+    throw new Error("選択中の部門に属さない試合です。");
   }
   const tournament = await getTournament(match.tournament_id);
 
@@ -503,6 +581,7 @@ export async function saveResult(input: ResultInput): Promise<Match> {
 
   await logMatchEvent({
     tournamentId: match.tournament_id,
+    divisionId: match.division_id,
     matchId: match.id,
     action: input.actor === "admin" ? "admin_edit" : "report",
     scoreA: check.totalPoints.a,
@@ -516,20 +595,23 @@ export async function saveResult(input: ResultInput): Promise<Match> {
   });
 
   if (match.stage === "bracket") {
-    await recomputeBracket(match.tournament_id);
+    await recomputeBracket(match.tournament_id, match.division_id);
   }
 
   return updated as Match;
 }
 
 /** 結果を取り消して「待機中」に戻す（主催者のみ） */
-export async function clearResult(matchId: string, tournamentId?: string) {
+export async function clearResult(matchId: string, tournamentId?: string, divisionId?: string) {
   const db = supabaseAdmin();
   const { data: found } = await db.from("matches").select("*").eq("id", matchId).single();
   if (!found) throw new Error("試合が見つかりませんでした。");
   const match = found as Match;
   if (tournamentId && match.tournament_id !== tournamentId) {
     throw new Error("選択中の大会に属さない試合です。");
+  }
+  if (divisionId && match.division_id !== divisionId) {
+    throw new Error("選択中の部門に属さない試合です。");
   }
 
   await db
@@ -548,10 +630,11 @@ export async function clearResult(matchId: string, tournamentId?: string) {
 
   await logMatchEvent({
     tournamentId: match.tournament_id,
+    divisionId: match.division_id,
     matchId,
     action: "reset",
     actor: "admin",
   });
 
-  if (match.stage === "bracket") await recomputeBracket(match.tournament_id);
+  if (match.stage === "bracket") await recomputeBracket(match.tournament_id, match.division_id);
 }

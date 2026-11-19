@@ -4,11 +4,13 @@ import {
   autoAssignSchedule,
   ensureLeagues,
   generateBracket,
+  getDivision,
+  getDivisions,
   getState,
   getTournament,
   regenerateLeagueMatches,
 } from "@/lib/data";
-import { errorMessage, fail, ok, requireAdmin, tournamentIdFromRequest } from "@/lib/api";
+import { divisionIdFromRequest, errorMessage, fail, ok, requireAdmin, tournamentIdFromRequest } from "@/lib/api";
 
 export const dynamic = "force-dynamic";
 
@@ -25,24 +27,25 @@ export async function POST(req: NextRequest) {
   try {
     const db = supabaseAdmin();
     const tournament = await getTournament(tournamentIdFromRequest(req));
+    const division = await getDivision(tournament.id, divisionIdFromRequest(req));
     const body = await req.json();
     const action = String(body?.action ?? "");
 
     if (action === "generate_league") {
-      const recreatedLeagues = await ensureLeagues(tournament.id, tournament.league_count);
+      const recreatedLeagues = await ensureLeagues(tournament.id, division.id, tournament.league_count);
       if (recreatedLeagues.length !== tournament.league_count) {
         throw new Error("空の予選リーグを作り直せませんでした。もう一度リセットを実行してください。");
       }
-      const state = await getState(tournament.id);
+      const state = await getState(tournament.id, division.id);
       const unassigned = state.teams.filter((t) => !t.league_id).length;
       if (unassigned > 0) {
         return fail(`リーグが未設定のチームが ${unassigned} 組あります。先にリーグ分けをしてください。`);
       }
       if (state.teams.length < 2) return fail("チームが足りません。");
-      await regenerateLeagueMatches(tournament.id);
+      await regenerateLeagueMatches(tournament.id, division.id);
       await db.from("tournaments").update({ phase: "league" }).eq("id", tournament.id);
     } else if (action === "generate_bracket") {
-      const state = await getState(tournament.id);
+      const state = await getState(tournament.id, division.id);
       const leagueMatches = state.matches.filter((m) => m.stage === "league");
       const remaining = leagueMatches.filter((m) => m.status !== "done").length;
       if (leagueMatches.length === 0) return fail("先にリーグ戦の対戦カードを作成してください。");
@@ -51,15 +54,21 @@ export async function POST(req: NextRequest) {
           `予選が ${remaining} 試合残っています。順位が確定していない状態で作成する場合は「未消化でも作成」を押してください。`
         );
       }
-      const result = await generateBracket(tournament.id, { startTime: body.startTime });
-      return ok({ ...(await getState(tournament.id)), tiers: result.tiers });
+      const result = await generateBracket(tournament.id, division.id, { startTime: body.startTime });
+      return ok({ ...(await getState(tournament.id, division.id)), tiers: result.tiers });
     } else if (action === "reset_bracket") {
       // 決勝ラウンドを丸ごと削除（トーナメントの試合と、総当たり級のリーグごと）
-      await db.from("matches").delete().eq("tournament_id", tournament.id).eq("stage", "bracket");
+      await db
+        .from("matches")
+        .delete()
+        .eq("tournament_id", tournament.id)
+        .eq("division_id", division.id)
+        .eq("stage", "bracket");
       const { data: tierLeagues } = await db
         .from("leagues")
         .select("id")
         .eq("tournament_id", tournament.id)
+        .eq("division_id", division.id)
         .not("tier_key", "is", null);
       const ids = (tierLeagues ?? []).map((l) => l.id as string);
       if (ids.length > 0) await db.from("leagues").delete().in("id", ids);
@@ -95,13 +104,16 @@ export async function POST(req: NextRequest) {
       if (reset.error) throw new Error(reset.error.message);
 
       // 大会形式の設定は残し、空の予選リーグだけを作り直す。
-      const recreatedLeagues = await ensureLeagues(tournament.id, tournament.league_count);
-      if (recreatedLeagues.length !== tournament.league_count) {
-        throw new Error("空の予選リーグを作り直せませんでした。もう一度リセットを実行してください。");
+      const divisions = await getDivisions(tournament.id, false);
+      for (const item of divisions) {
+        const recreatedLeagues = await ensureLeagues(tournament.id, item.id, tournament.league_count);
+        if (recreatedLeagues.length !== tournament.league_count) {
+          throw new Error("空の予選リーグを作り直せませんでした。もう一度リセットを実行してください。");
+        }
       }
     } else if (action === "auto_schedule") {
       const phase = body.stage === "bracket" || body.phase === "finals" ? "finals" : "qualifying";
-      await autoAssignSchedule(tournament.id, phase, {
+      await autoAssignSchedule(tournament.id, division.id, phase, {
         startTime: String(body.startTime || tournament.start_time),
         minutesPerMatch: Number(body.minutesPerMatch || tournament.minutes_per_match),
         courts: Array.isArray(body.courts) && body.courts.length > 0 ? body.courts : tournament.courts,
@@ -110,7 +122,7 @@ export async function POST(req: NextRequest) {
       return fail("不明な操作です。");
     }
 
-    return ok(await getState(tournament.id));
+    return ok(await getState(tournament.id, division.id));
   } catch (e) {
     return fail(errorMessage(e), 400);
   }

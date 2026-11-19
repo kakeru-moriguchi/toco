@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { ensureLeagues, getTournament } from "@/lib/data";
+import { ensureLeagues, getDivisions, getTournament } from "@/lib/data";
 import { errorMessage, fail, ok, requireAdmin, tournamentIdFromRequest } from "@/lib/api";
 import { normalizeTiers, validateTiers } from "@/lib/tiers";
 import type { Tiebreaker } from "@/lib/types";
@@ -77,7 +77,10 @@ export async function PATCH(req: NextRequest) {
     if (error) throw new Error(error.message);
 
     if (patch.league_count !== undefined) {
-      await ensureLeagues(tournament.id, patch.league_count as number);
+      const divisions = await getDivisions(tournament.id, false);
+      for (const division of divisions) {
+        await ensureLeagues(tournament.id, division.id, patch.league_count as number);
+      }
     }
 
     return ok({ tournament: await getTournament(tournament.id) });

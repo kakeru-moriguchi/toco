@@ -84,7 +84,7 @@ export default function HomePage() {
         <div className="mx-auto max-w-3xl px-5">
           <p className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-xs font-bold tracking-wide">
             <span className="inline-block h-2 w-2 rounded-full bg-ball-400" />
-            PICKLEBALL
+            PICKLEBALL{state?.division ? ` · ${state.division.name}` : ""}
           </p>
           <h1 className="text-2xl font-black leading-snug sm:text-3xl">
             {loading ? "読み込み中…" : tournament?.name || "大会"}

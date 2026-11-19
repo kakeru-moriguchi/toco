@@ -1,7 +1,7 @@
 import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
-import { defaultLeagueName, ensureLeagues, getState, getTournament } from "@/lib/data";
-import { errorMessage, fail, ok, requireAdmin, tournamentIdFromRequest } from "@/lib/api";
+import { defaultLeagueName, ensureLeagues, getDivision, getState, getTournament } from "@/lib/data";
+import { divisionIdFromRequest, errorMessage, fail, ok, requireAdmin, tournamentIdFromRequest } from "@/lib/api";
 import type { Team } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -21,21 +21,34 @@ export async function POST(req: NextRequest) {
   try {
     const db = supabaseAdmin();
     const tournament = await getTournament(tournamentIdFromRequest(req));
+    const division = await getDivision(tournament.id, divisionIdFromRequest(req));
     const body = await req.json();
     const action = String(body?.action ?? "");
 
     if (action === "add") {
       const name = String(body.name ?? "").trim();
       if (!name) return fail("チーム名を入力してください。");
+      if (body.league_id) {
+        const { data: league } = await db
+          .from("leagues")
+          .select("id")
+          .eq("id", String(body.league_id))
+          .eq("tournament_id", tournament.id)
+          .eq("division_id", division.id)
+          .maybeSingle();
+        if (!league) return fail("選択中の部門に属さないリーグです。");
+      }
       const { data: last } = await db
         .from("teams")
         .select("sort_order")
         .eq("tournament_id", tournament.id)
+        .eq("division_id", division.id)
         .order("sort_order", { ascending: false })
         .limit(1);
       const nextOrder = (last?.[0]?.sort_order ?? -1) + 1;
       const { error } = await db.from("teams").insert({
         tournament_id: tournament.id,
+        division_id: division.id,
         name: name.slice(0, 60),
         members: String(body.members ?? "").slice(0, 120),
         league_id: body.league_id || null,
@@ -53,6 +66,7 @@ export async function POST(req: NextRequest) {
         .from("teams")
         .select("sort_order")
         .eq("tournament_id", tournament.id)
+        .eq("division_id", division.id)
         .order("sort_order", { ascending: false })
         .limit(1);
       let order = (last?.[0]?.sort_order ?? -1) + 1;
@@ -61,6 +75,7 @@ export async function POST(req: NextRequest) {
         const [name, members = ""] = line.split(/[,、\t]/);
         return {
           tournament_id: tournament.id,
+          division_id: division.id,
           name: name.trim().slice(0, 60),
           members: members.trim().slice(0, 120),
           league_id: null,
@@ -75,9 +90,26 @@ export async function POST(req: NextRequest) {
       const patch: Record<string, unknown> = {};
       if (typeof body.name === "string") patch.name = body.name.trim().slice(0, 60);
       if (typeof body.members === "string") patch.members = body.members.slice(0, 120);
-      if (body.league_id !== undefined) patch.league_id = body.league_id || null;
+      if (body.league_id !== undefined) {
+        if (body.league_id) {
+          const { data: league } = await db
+            .from("leagues")
+            .select("id")
+            .eq("id", String(body.league_id))
+            .eq("tournament_id", tournament.id)
+            .eq("division_id", division.id)
+            .maybeSingle();
+          if (!league) return fail("選択中の部門に属さないリーグです。");
+        }
+        patch.league_id = body.league_id || null;
+      }
       if (body.sort_order !== undefined) patch.sort_order = Math.trunc(Number(body.sort_order)) || 0;
-      const { error } = await db.from("teams").update(patch).eq("id", id).eq("tournament_id", tournament.id);
+      const { error } = await db
+        .from("teams")
+        .update(patch)
+        .eq("id", id)
+        .eq("tournament_id", tournament.id)
+        .eq("division_id", division.id);
       if (error) throw new Error(error.message);
     } else if (action === "remove") {
       const id = String(body.id ?? "");
@@ -87,12 +119,18 @@ export async function POST(req: NextRequest) {
         .from("matches")
         .delete()
         .eq("tournament_id", tournament.id)
+        .eq("division_id", division.id)
         .or(`team_a_id.eq.${id},team_b_id.eq.${id}`);
-      const { error } = await db.from("teams").delete().eq("id", id).eq("tournament_id", tournament.id);
+      const { error } = await db
+        .from("teams")
+        .delete()
+        .eq("id", id)
+        .eq("tournament_id", tournament.id)
+        .eq("division_id", division.id);
       if (error) throw new Error(error.message);
     } else if (action === "auto_assign" || action === "shuffle") {
-      const leagues = await ensureLeagues(tournament.id, tournament.league_count);
-      const state = await getState(tournament.id);
+      const leagues = await ensureLeagues(tournament.id, division.id, tournament.league_count);
+      const state = await getState(tournament.id, division.id);
       let teams: Team[] = [...state.teams].sort((a, b) => a.sort_order - b.sort_order);
       if (action === "shuffle") {
         for (let i = teams.length - 1; i > 0; i--) {
@@ -125,11 +163,12 @@ export async function POST(req: NextRequest) {
         .from("leagues")
         .update({ name: name.slice(0, 20) })
         .eq("id", id)
-        .eq("tournament_id", tournament.id);
+        .eq("tournament_id", tournament.id)
+        .eq("division_id", division.id);
       if (error) throw new Error(error.message);
     } else if (action === "renumber_leagues") {
       // ①②③… の形式に一括で付け直す（キーボードから入力しにくいため）
-      const leagues = await ensureLeagues(tournament.id, tournament.league_count);
+      const leagues = await ensureLeagues(tournament.id, division.id, tournament.league_count);
       for (let i = 0; i < leagues.length; i++) {
         await db.from("leagues").update({ name: defaultLeagueName(i) }).eq("id", leagues[i].id);
       }
@@ -137,7 +176,7 @@ export async function POST(req: NextRequest) {
       return fail("不明な操作です。");
     }
 
-    const state = await getState(tournament.id);
+    const state = await getState(tournament.id, division.id);
     return ok({ teams: state.teams, leagues: state.leagues });
   } catch (e) {
     return fail(errorMessage(e), 500);
