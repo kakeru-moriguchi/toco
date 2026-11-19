@@ -5,11 +5,28 @@ import { errorMessage, fail, ok, requireAdmin, tournamentIdFromRequest } from "@
 
 export const dynamic = "force-dynamic";
 
+async function divisionsWithTeamCounts(tournamentId: string) {
+  const db = supabaseAdmin();
+  const [divisions, teams] = await Promise.all([
+    getDivisions(tournamentId),
+    db.from("teams").select("division_id").eq("tournament_id", tournamentId),
+  ]);
+  if (teams.error) throw new Error(teams.error.message);
+  const counts = new Map<string, number>();
+  for (const team of teams.data ?? []) {
+    counts.set(team.division_id, (counts.get(team.division_id) ?? 0) + 1);
+  }
+  return divisions.map((division) => ({
+    ...division,
+    team_count: counts.get(division.id) ?? 0,
+  }));
+}
+
 export async function GET(req: NextRequest) {
   if (!(await requireAdmin(req))) return fail("認証が必要です。", 401);
   try {
     const tournament = await getTournament(tournamentIdFromRequest(req));
-    return ok({ divisions: await getDivisions(tournament.id) });
+    return ok({ divisions: await divisionsWithTeamCounts(tournament.id) });
   } catch (e) {
     return fail(errorMessage(e), 500);
   }
@@ -35,7 +52,7 @@ export async function POST(req: NextRequest) {
         .single();
       if (error) throw new Error(error.code === "23505" ? "同じ名前の部門があります。" : error.message);
       await ensureLeagues(tournament.id, data.id, tournament.league_count);
-      return ok({ division: data, divisions: await getDivisions(tournament.id) });
+      return ok({ division: data, divisions: await divisionsWithTeamCounts(tournament.id) });
     }
 
     const id = String(body.id ?? "");
@@ -79,7 +96,7 @@ export async function POST(req: NextRequest) {
       return fail("不明な操作です。");
     }
 
-    return ok({ divisions: await getDivisions(tournament.id) });
+    return ok({ divisions: await divisionsWithTeamCounts(tournament.id) });
   } catch (e) {
     return fail(errorMessage(e), 500);
   }
