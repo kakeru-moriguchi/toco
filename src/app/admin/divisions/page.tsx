@@ -9,6 +9,7 @@ import { selectedTournamentId } from "@/lib/tournamentSelection";
 import { useTournamentState } from "@/lib/useTournamentState";
 import { LoadingBlock } from "@/components/ui";
 import { divisionCourts, divisionLeagueCount } from "@/lib/divisionFormat";
+import { DivisionFormatEditor } from "@/components/DivisionFormatEditor";
 
 export default function AdminDivisionsPage() {
   const router = useRouter();
@@ -57,26 +58,6 @@ export default function AdminDivisionsPage() {
     <AdminShell title="部門管理" description="大会内の部門を追加し、部門ごとの運営画面へ切り替えます。">
       {loading && !state ? <LoadingBlock /> : state && (
         <div className="space-y-4">
-          <section className="card space-y-3 border-ball-300 p-4">
-            <div>
-              <h2 className="text-sm font-black text-court-800">清武体育館大会の形式</h2>
-              <p className="mt-1 text-xs leading-relaxed text-ink-500">
-                PDFの形式に合わせて、初中級（4リーグ・1〜4番コート）、中上級（2リーグ・5〜6番コート）、
-                50歳以上（1リーグ・7〜8番コート・決勝なし）を設定します。5チーム予選の試合順と3ゲーム名も設定します。
-              </p>
-            </div>
-            <button
-              className="btn-primary"
-              disabled={busy}
-              onClick={() => {
-                if (!confirm("部門名に「初中級」「中上級」「50」を含む部門へPDFの大会形式を設定します。既存の結果は削除しません。続けますか？")) return;
-                run({ action: "apply_toco_pdf_format" }, "PDFの大会形式を設定しました");
-              }}
-            >
-              PDFの大会形式を適用
-            </button>
-          </section>
-
           <section className="card space-y-3 p-4">
             <h2 className="text-sm font-black text-court-800">新しい部門</h2>
             <div className="flex flex-col gap-2 sm:flex-row">
@@ -141,6 +122,18 @@ export default function AdminDivisionsPage() {
                   )}
                   {!division.is_active && <button className="btn-ghost btn-sm" disabled={busy} onClick={() => run({ action: "restore", id: division.id }, "部門を復元しました")}>復元</button>}
                 </div>
+                {division.is_active && (
+                  <DivisionFormatEditor
+                    division={division}
+                    tournament={state.tournament}
+                    busy={busy}
+                    onSave={(body) => run(body, `${division.name}の大会形式を保存しました`)}
+                    onReset={() => {
+                      if (!confirm(`${division.name}の部門別設定を解除し、大会共通設定に戻しますか？`)) return Promise.resolve(null);
+                      return run({ action: "reset_format", id: division.id }, `${division.name}を大会共通設定に戻しました`);
+                    }}
+                  />
+                )}
               </section>
             );
           })}
