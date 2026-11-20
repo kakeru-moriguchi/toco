@@ -60,6 +60,34 @@ export type ScheduleAssignment = {
   scheduledAt: string;
 };
 
+export type CourtSlot = {
+  id: string;
+  division_id: string;
+  court: string;
+  scheduled_at: string;
+};
+
+/** 9:00 と 09:00 を同じ枠として扱う。 */
+export function normalizeScheduledAt(value: string): string {
+  const [hour, minute] = value.split(":");
+  return `${hour.padStart(2, "0")}:${minute}`;
+}
+
+/** watchedIds の更新によって発生する、大会全体の同時刻・同コート重複を返す。 */
+export function findCourtConflict(rows: CourtSlot[], watchedIds: Set<string>) {
+  const occupied = new Map<string, CourtSlot>();
+  for (const row of rows) {
+    if (!row.court || !row.scheduled_at) continue;
+    const key = `${normalizeScheduledAt(row.scheduled_at)}\u0000${row.court}`;
+    const existing = occupied.get(key);
+    if (existing && (watchedIds.has(existing.id) || watchedIds.has(row.id))) {
+      return { first: existing, second: row };
+    }
+    occupied.set(key, row);
+  }
+  return null;
+}
+
 function parseTime(hhmm: string): number {
   const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
   if (!m) return 9 * 60;
