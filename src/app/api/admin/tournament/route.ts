@@ -79,7 +79,9 @@ export async function PATCH(req: NextRequest) {
     if (patch.league_count !== undefined) {
       const divisions = await getDivisions(tournament.id, false);
       for (const division of divisions) {
-        await ensureLeagues(tournament.id, division.id, patch.league_count as number);
+        if (division.league_count === null) {
+          await ensureLeagues(tournament.id, division.id, patch.league_count as number);
+        }
       }
     }
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assignSchedule, findCourtConflict, normalizeScheduledAt, roundRobin } from "../src/lib/schedule";
+import { assignSchedule, findCourtConflict, normalizeScheduledAt, qualifyingPairs, roundRobin } from "../src/lib/schedule";
 
 test("round robin creates every pairing once without a same-round duplicate", () => {
   const pairs = roundRobin(5);
@@ -12,6 +12,13 @@ test("round robin creates every pairing once without a same-round duplicate", ()
     const teams = pairs.filter((pair) => pair.round === round).flatMap((pair) => [pair.a, pair.b]);
     assert.equal(new Set(teams).size, teams.length);
   }
+});
+
+test("TOCO five-team order follows the published progression", () => {
+  assert.deepEqual(
+    qualifyingPairs(5, "toco_5_team").map(({ a, b }) => [a + 1, b + 1]),
+    [[1, 2], [3, 4], [1, 5], [2, 3], [4, 5], [1, 3], [2, 4], [3, 5], [1, 4], [2, 5]]
+  );
 });
 
 test("automatic scheduling respects reserved courts and avoids consecutive team collisions", () => {

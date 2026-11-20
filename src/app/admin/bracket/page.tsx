@@ -12,6 +12,7 @@ import { computeAllStandings, computeStandings } from "@/lib/standings";
 import { tierRangeLabel } from "@/lib/tiers";
 import { matchGroupName, qualifyingLeagues, sideName, tierLeagueTeams } from "@/lib/view";
 import { TIER_FORMAT_LABELS } from "@/lib/types";
+import { divisionGameLabels, divisionTiers } from "@/lib/divisionFormat";
 
 export default function AdminBracketPage() {
   const { state, loading, refresh } = useTournamentState();
@@ -71,7 +72,8 @@ export default function AdminBracketPage() {
   // 級ごとに試合をまとめる（トーナメント形式・総当たり形式の両方）
   const tierGroups = useMemo(() => {
     if (!state) return [];
-    return state.tournament.bracket_tiers
+    if (!state.division.finals_enabled) return [];
+    return divisionTiers(state.division, state.tournament)
       .map((tier) => ({
         tier,
         matches: state.matches
@@ -115,7 +117,7 @@ export default function AdminBracketPage() {
           <section className="card space-y-3 p-4">
             <h2 className="text-sm font-black text-court-800">組み合わせの作成</h2>
             <ul className="space-y-1 text-xs text-ink-700">
-              {state.tournament.bracket_tiers.map((t) => (
+              {(state.division.finals_enabled ? divisionTiers(state.division, state.tournament) : []).map((t) => (
                 <li key={t.key} className="flex items-center gap-2">
                   <span className="chip bg-court-100 text-court-800">{t.name}</span>
                   <span>各リーグ{tierRangeLabel(t)}</span>
@@ -134,7 +136,12 @@ export default function AdminBracketPage() {
                 </span>
               )}
             </p>
-            <div className="grid gap-2 sm:grid-cols-3">
+            {!state.division.finals_enabled && (
+              <p className="rounded-xl bg-court-50 px-3 py-2 text-sm font-bold text-court-800">
+                この部門は予選リーグの順位が最終順位です。決勝ラウンドは作成しません。
+              </p>
+            )}
+            {state.division.finals_enabled && <div className="grid gap-2 sm:grid-cols-3">
               <input
                 className="field"
                 placeholder={`開始時刻（未入力なら ${state.tournament.start_time}）`}
@@ -175,7 +182,7 @@ export default function AdminBracketPage() {
                   未消化でも作成
                 </button>
               )}
-            </div>
+            </div>}
             {bracketCount > 0 && (
               <button
                 className="btn-danger btn-sm"
@@ -236,6 +243,7 @@ export default function AdminBracketPage() {
                         teamB={sideName(m, "b", state.teams)}
                         busy={busy}
                         setsToWin={state.tournament.sets_to_win}
+                        gameLabels={divisionGameLabels(state.division)}
                         onSave={(sets) => {
                           callMatch({ action: "result", id: m.id, sets }, "結果を保存しました");
                         }}
@@ -260,7 +268,7 @@ export default function AdminBracketPage() {
                 </header>
                 <StandingsTable
                   rows={standings[l.id] ?? []}
-                  tiers={state.tournament.bracket_tiers}
+                  tiers={divisionTiers(state.division, state.tournament)}
                 />
               </div>
             ))}

@@ -6,6 +6,7 @@ import { useTournamentState } from "@/lib/useTournamentState";
 import { adminPost } from "@/lib/adminApi";
 import { LoadingBlock, StatusBadge } from "@/components/ui";
 import { matchGroupName, sideName, sortMatches } from "@/lib/view";
+import { divisionCourts } from "@/lib/divisionFormat";
 
 export default function AdminSchedulePage() {
   const { state, loading, refresh } = useTournamentState();
@@ -105,7 +106,7 @@ export default function AdminSchedulePage() {
         team_b_id: manualTeamBId,
         match_no: matchNo,
         scheduled_at: manualTime,
-        court: manualCourt || state?.tournament.courts[0] || "",
+        court: manualCourt || (state ? divisionCourts(state.division, state.tournament)[0] : "") || "",
       },
       "第" + matchNo + "試合を作成しました"
     );
@@ -145,7 +146,7 @@ export default function AdminSchedulePage() {
             <h2 className="text-sm font-black text-court-800">時間とコートの自動割り当て</h2>
             <p className="text-xs text-ink-500">
               現在の設定：開始 {state.tournament.start_time} / 1試合 {state.tournament.minutes_per_match}分 / コート{" "}
-              {state.tournament.courts.join("・")}（変更は「大会情報」ページ）
+              {divisionCourts(state.division, state.tournament).join("・")}（部門別設定）
             </p>
             <div className="grid gap-2 sm:grid-cols-3">
               <select className="field" value={stage} onChange={(e) => setStage(e.target.value as "league" | "bracket")}>
@@ -274,12 +275,12 @@ export default function AdminSchedulePage() {
                 <input
                   className="field mt-1 h-11 text-center"
                   list="manual-court-options"
-                  placeholder={state.tournament.courts[0] || "1"}
+                  placeholder={divisionCourts(state.division, state.tournament)[0] || "1"}
                   value={manualCourt}
                   onChange={(e) => setManualCourt(e.target.value)}
                 />
                 <datalist id="manual-court-options">
-                  {state.tournament.courts.map((court) => (
+                  {divisionCourts(state.division, state.tournament).map((court) => (
                     <option key={court} value={court} />
                   ))}
                 </datalist>

@@ -10,6 +10,7 @@ export function ResultEditor({
   teamA,
   teamB,
   setsToWin,
+  gameLabels = [],
   busy,
   onSave,
   onClear,
@@ -20,6 +21,7 @@ export function ResultEditor({
   teamB: string;
   /** 何セット先取か */
   setsToWin: number;
+  gameLabels?: string[];
   busy: boolean;
   onSave: (sets: SetScore[]) => void;
   onClear: () => void;
@@ -50,7 +52,7 @@ export function ResultEditor({
   return (
     <div className="space-y-2">
       <div className="flex items-center gap-2 text-sm font-bold">
-        <span className="w-14 shrink-0" />
+        <span className="w-28 shrink-0" />
         <span className="min-w-0 flex-1 truncate">{teamA}</span>
         <span className="shrink-0 text-ink-500">vs</span>
         <span className="min-w-0 flex-1 truncate text-right">{teamB}</span>
@@ -58,13 +60,13 @@ export function ResultEditor({
 
       {inputs.map((v, i) => (
         <div key={i} className="flex items-center gap-2">
-          <span className="w-14 shrink-0 text-xs font-bold text-court-800">
-            {need === 1 ? "スコア" : `第${i + 1}${fixedGames ? "G" : ""}`}
+          <span className="w-28 shrink-0 text-xs font-bold leading-tight text-court-800">
+            {need === 1 ? "スコア" : gameLabels[i] || `第${i + 1}${fixedGames ? "G" : ""}`}
           </span>
           <input
             className="field h-11 flex-1 text-center text-lg font-black tabular-nums"
             inputMode="numeric"
-            aria-label={`${teamA} 第${i + 1}${fixedGames ? "ゲーム" : "セット"}の得点`}
+            aria-label={`${teamA} ${gameLabels[i] || `第${i + 1}${fixedGames ? "ゲーム" : "セット"}`}の得点`}
             value={v.a}
             disabled={!ready}
             onChange={(e) =>
@@ -75,7 +77,7 @@ export function ResultEditor({
           <input
             className="field h-11 flex-1 text-center text-lg font-black tabular-nums"
             inputMode="numeric"
-            aria-label={`${teamB} 第${i + 1}${fixedGames ? "ゲーム" : "セット"}の得点`}
+            aria-label={`${teamB} ${gameLabels[i] || `第${i + 1}${fixedGames ? "ゲーム" : "セット"}`}の得点`}
             value={v.b}
             disabled={!ready}
             onChange={(e) =>
