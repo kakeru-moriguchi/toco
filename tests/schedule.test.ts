@@ -1,0 +1,47 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { assignSchedule, findCourtConflict, normalizeScheduledAt, roundRobin } from "../src/lib/schedule";
+
+test("round robin creates every pairing once without a same-round duplicate", () => {
+  const pairs = roundRobin(5);
+  assert.equal(pairs.length, 10);
+  const unique = new Set(pairs.map((pair) => [pair.a, pair.b].sort((a, b) => a - b).join("-")));
+  assert.equal(unique.size, 10);
+
+  for (const round of new Set(pairs.map((pair) => pair.round))) {
+    const teams = pairs.filter((pair) => pair.round === round).flatMap((pair) => [pair.a, pair.b]);
+    assert.equal(new Set(teams).size, teams.length);
+  }
+});
+
+test("automatic scheduling respects reserved courts and avoids consecutive team collisions", () => {
+  const result = assignSchedule(
+    [
+      { id: "m1", teamAId: "a", teamBId: "b" },
+      { id: "m2", teamAId: "a", teamBId: "c" },
+      { id: "m3", teamAId: "d", teamBId: "e" },
+    ],
+    {
+      startTime: "09:00",
+      minutesPerMatch: 20,
+      courts: ["1", "2"],
+      reserved: [{ court: "1", scheduledAt: "09:00" }],
+    }
+  );
+
+  assert.deepEqual(result[0], { id: "m1", matchNo: 1, court: "2", scheduledAt: "09:00" });
+  assert.equal(result[1].scheduledAt, "09:20");
+  assert.notEqual(`${result[0].scheduledAt}:${result[0].court}`, `${result[2].scheduledAt}:${result[2].court}`);
+});
+
+test("court conflict detection treats 9:00 and 09:00 as the same tournament slot", () => {
+  assert.equal(normalizeScheduledAt("9:00"), "09:00");
+  const rows = [
+    { id: "a", division_id: "division-a", court: "1", scheduled_at: "9:00" },
+    { id: "b", division_id: "division-b", court: "1", scheduled_at: "09:00" },
+  ];
+  const conflict = findCourtConflict(rows, new Set(["b"]));
+  assert.equal(conflict?.first.id, "a");
+  assert.equal(conflict?.second.id, "b");
+});
+

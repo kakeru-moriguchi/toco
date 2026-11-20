@@ -2,34 +2,9 @@ import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { clearResult, getDivision, getState, getTournament, logMatchEvent, saveResult } from "@/lib/data";
 import { divisionIdFromRequest, errorMessage, fail, ok, readSets, requireAdmin, tournamentIdFromRequest } from "@/lib/api";
+import { findCourtConflict, normalizeScheduledAt, type CourtSlot } from "@/lib/schedule";
 
 export const dynamic = "force-dynamic";
-
-type CourtSlot = {
-  id: string;
-  division_id: string;
-  court: string;
-  scheduled_at: string;
-};
-
-function normalizeScheduledAt(value: string) {
-  const [hour, minute] = value.split(":");
-  return `${hour.padStart(2, "0")}:${minute}`;
-}
-
-function findCourtConflict(rows: CourtSlot[], watchedIds: Set<string>) {
-  const occupied = new Map<string, CourtSlot>();
-  for (const row of rows) {
-    if (!row.court || !row.scheduled_at) continue;
-    const key = `${normalizeScheduledAt(row.scheduled_at)}\u0000${row.court}`;
-    const existing = occupied.get(key);
-    if (existing && (watchedIds.has(existing.id) || watchedIds.has(row.id))) {
-      return { first: existing, second: row };
-    }
-    occupied.set(key, row);
-  }
-  return null;
-}
 
 async function validateCourtSchedule(params: {
   tournamentId: string;

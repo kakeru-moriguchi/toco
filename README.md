@@ -412,6 +412,8 @@ PCのローカルIP（例 `http://192.168.0.5:3000`）を開いてください�
 npm run build      # 本番ビルド
 npm start          # ビルド結果の起動
 npm run typecheck  # 型チェック
+npm run lint       # ソースとテストのLint
+npm test           # 自動テスト
 ```
 
 ---

@@ -1,0 +1,83 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { planBracket, resolveBracketProgress, type Qualifier } from "../src/lib/bracket";
+import type { Match } from "../src/lib/types";
+
+const qualifiers: Qualifier[] = [
+  { teamId: "A1", teamName: "A1", leagueName: "A", rankInLeague: 1, label: "A1" },
+  { teamId: "B1", teamName: "B1", leagueName: "B", rankInLeague: 1, label: "B1" },
+  { teamId: "A2", teamName: "A2", leagueName: "A", rankInLeague: 2, label: "A2" },
+  { teamId: "B2", teamName: "B2", leagueName: "B", rankInLeague: 2, label: "B2" },
+];
+
+test("bracket planning avoids same-league opening matches and adds third place", () => {
+  const planned = planBracket(qualifiers, { thirdPlaceMatch: true });
+  const opening = planned.filter((match) => match.round === 1);
+  assert.equal(opening.length, 2);
+  for (const match of opening) {
+    assert.notEqual(match.teamAId?.slice(0, 1), match.teamBId?.slice(0, 1));
+  }
+  assert.equal(planned.filter((match) => match.isThirdPlace).length, 1);
+});
+
+function bracketMatch(patch: Partial<Match> & Pick<Match, "id">): Match {
+  return {
+    tournament_id: "t",
+    division_id: "d",
+    stage: "bracket",
+    league_id: null,
+    tier_key: "A",
+    round: 1,
+    bracket_index: 0,
+    is_third_place: false,
+    match_no: 1,
+    court: "1",
+    scheduled_at: "09:00",
+    status: "pending",
+    team_a_id: null,
+    team_b_id: null,
+    team_a_label: "",
+    team_b_label: "",
+    sets: [],
+    score_a: null,
+    score_b: null,
+    winner_team_id: null,
+    next_match_id: null,
+    next_slot: null,
+    loser_next_match_id: null,
+    loser_next_slot: null,
+    reported_at: null,
+    reported_by: null,
+    ...patch,
+  };
+}
+
+test("bracket recomputation advances winners and clears stale final results", () => {
+  const semifinal = bracketMatch({
+    id: "semi",
+    status: "done",
+    team_a_id: "A",
+    team_b_id: "B",
+    winner_team_id: "A",
+    score_a: 11,
+    score_b: 5,
+    next_match_id: "final",
+    next_slot: "a",
+  });
+  const final = bracketMatch({
+    id: "final",
+    round: 2,
+    status: "done",
+    team_a_id: "OLD",
+    team_b_id: "C",
+    winner_team_id: "OLD",
+    score_a: 11,
+    score_b: 8,
+  });
+  const patches = resolveBracketProgress([semifinal, final]);
+  assert.deepEqual(patches, [{
+    id: "final",
+    patch: { team_a_id: "A", score_a: null, score_b: null, winner_team_id: null, status: "pending" },
+  }]);
+});
+
