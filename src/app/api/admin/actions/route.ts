@@ -11,6 +11,7 @@ import {
   regenerateLeagueMatches,
 } from "@/lib/data";
 import { divisionIdFromRequest, errorMessage, fail, ok, requireAdmin, tournamentIdFromRequest } from "@/lib/api";
+import { divisionCourts, divisionLeagueCount } from "@/lib/divisionFormat";
 
 export const dynamic = "force-dynamic";
 
@@ -32,8 +33,9 @@ export async function POST(req: NextRequest) {
     const action = String(body?.action ?? "");
 
     if (action === "generate_league") {
-      const recreatedLeagues = await ensureLeagues(tournament.id, division.id, tournament.league_count);
-      if (recreatedLeagues.length !== tournament.league_count) {
+      const leagueCount = divisionLeagueCount(division, tournament);
+      const recreatedLeagues = await ensureLeagues(tournament.id, division.id, leagueCount);
+      if (recreatedLeagues.length !== leagueCount) {
         throw new Error("空の予選リーグを作り直せませんでした。もう一度リセットを実行してください。");
       }
       const state = await getState(tournament.id, division.id);
@@ -106,8 +108,9 @@ export async function POST(req: NextRequest) {
       // 大会形式の設定は残し、空の予選リーグだけを作り直す。
       const divisions = await getDivisions(tournament.id, false);
       for (const item of divisions) {
-        const recreatedLeagues = await ensureLeagues(tournament.id, item.id, tournament.league_count);
-        if (recreatedLeagues.length !== tournament.league_count) {
+        const leagueCount = divisionLeagueCount(item, tournament);
+        const recreatedLeagues = await ensureLeagues(tournament.id, item.id, leagueCount);
+        if (recreatedLeagues.length !== leagueCount) {
           throw new Error("空の予選リーグを作り直せませんでした。もう一度リセットを実行してください。");
         }
       }
@@ -116,7 +119,7 @@ export async function POST(req: NextRequest) {
       await autoAssignSchedule(tournament.id, division.id, phase, {
         startTime: String(body.startTime || tournament.start_time),
         minutesPerMatch: Number(body.minutesPerMatch || tournament.minutes_per_match),
-        courts: Array.isArray(body.courts) && body.courts.length > 0 ? body.courts : tournament.courts,
+        courts: Array.isArray(body.courts) && body.courts.length > 0 ? body.courts : divisionCourts(division, tournament),
       });
     } else {
       return fail("不明な操作です。");

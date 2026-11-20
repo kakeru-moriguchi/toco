@@ -56,6 +56,14 @@ create table if not exists divisions (
   name          text not null,
   sort_order    int not null default 0,
   is_active     boolean not null default true,
+  -- 部門別大会形式。null は tournaments の共通設定を継承する。
+  league_count  int check (league_count is null or league_count between 1 and 26),
+  courts        text[],
+  bracket_tiers jsonb,
+  finals_enabled boolean not null default true,
+  qualifying_match_order text not null default 'balanced'
+    check (qualifying_match_order in ('balanced','toco_5_team')),
+  game_labels   text[],
   created_at    timestamptz not null default now(),
   updated_at    timestamptz not null default now(),
   unique (tournament_id, name),

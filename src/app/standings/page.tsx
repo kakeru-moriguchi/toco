@@ -9,6 +9,7 @@ import { setsDetail } from "@/lib/score";
 import { StandingsTable } from "@/components/StandingsTable";
 import { tierRangeLabel } from "@/lib/tiers";
 import { EmptyBlock, ErrorBlock, LiveDot, LoadingBlock, PageShell } from "@/components/ui";
+import { divisionTiers } from "@/lib/divisionFormat";
 
 export default function StandingsPage() {
   const { state, loading, error, refresh, updatedAt } = useTournamentState();
@@ -46,7 +47,7 @@ export default function StandingsPage() {
                   {done} / {matches.length} 試合終了
                 </span>
               </header>
-              <StandingsTable rows={rows} tiers={state.tournament.bracket_tiers} />
+              <StandingsTable rows={rows} tiers={state.division.finals_enabled ? divisionTiers(state.division, state.tournament) : []} />
               <details className="border-t border-court-100">
                 <summary className="cursor-pointer px-4 py-3 text-sm font-bold text-court-800">
                   {league.name}リーグの試合結果を見る
@@ -94,14 +95,16 @@ export default function StandingsPage() {
               {TIEBREAKER_LABELS[t]}
             </span>
           ))}
-          <br />
-          <span className="font-bold text-court-800">決勝トーナメントの進出先：</span>
-          {state.tournament.bracket_tiers.map((t, i) => (
-            <span key={t.key}>
-              {i > 0 && " / "}
-              各リーグ{tierRangeLabel(t)} → {t.name}
-            </span>
-          ))}
+          {state.division.finals_enabled ? <>
+            <br />
+            <span className="font-bold text-court-800">決勝トーナメントの進出先：</span>
+            {divisionTiers(state.division, state.tournament).map((t, i) => (
+              <span key={t.key}>
+                {i > 0 && " / "}
+                各リーグ{tierRangeLabel(t)} → {t.name}
+              </span>
+            ))}
+          </> : <><br /><span className="font-bold text-court-800">この部門はリーグ順位が最終順位です。</span></>}
         </p>
       )}
     </PageShell>

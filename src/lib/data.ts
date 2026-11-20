@@ -1,9 +1,10 @@
 import { supabaseAdmin } from "./supabase";
-import { assignSchedule, roundRobin } from "./schedule";
+import { assignSchedule, qualifyingPairs, roundRobin } from "./schedule";
 import { planBracketsFromLeagues, resolveBracketProgress, type PlannedTier } from "./bracket";
 import { normalizeTiers } from "./tiers";
 import { normalizeSets, validateSets } from "./score";
 import type { Division, League, Match, SetScore, Team, Tournament, TournamentState } from "./types";
+import { divisionCourts, divisionTiers } from "./divisionFormat";
 
 /**
  * サーバー側のデータ操作。
@@ -23,6 +24,19 @@ function toTournament(row: Record<string, unknown>): Tournament {
 /** DBの試合行を、画面がそのまま使える形に整える */
 function toMatch(row: Record<string, unknown>): Match {
   return { ...(row as unknown as Match), sets: normalizeSets(row.sets) };
+}
+
+function toDivision(row: Record<string, unknown>): Division {
+  const rawOrder = String(row.qualifying_match_order ?? "balanced");
+  return {
+    ...(row as unknown as Division),
+    league_count: row.league_count == null ? null : Math.max(1, Math.trunc(Number(row.league_count))),
+    courts: Array.isArray(row.courts) ? row.courts.map(String).filter(Boolean) : null,
+    bracket_tiers: row.bracket_tiers == null ? null : normalizeTiers(row.bracket_tiers),
+    finals_enabled: row.finals_enabled !== false,
+    qualifying_match_order: rawOrder === "toco_5_team" ? "toco_5_team" : "balanced",
+    game_labels: Array.isArray(row.game_labels) ? row.game_labels.map(String).filter(Boolean) : null,
+  };
 }
 
 export async function getTournament(tournamentId?: string | null): Promise<Tournament> {
@@ -52,7 +66,7 @@ export async function getDivisions(tournamentId: string, includeInactive = true)
   if (!includeInactive) query = query.eq("is_active", true);
   const { data, error } = await query.order("sort_order").order("created_at");
   if (error) throw new Error(error.message);
-  return (data ?? []) as Division[];
+  return (data ?? []).map((row) => toDivision(row as Record<string, unknown>));
 }
 
 export async function createDefaultDivision(tournamentId: string): Promise<Division> {
@@ -65,7 +79,7 @@ export async function createDefaultDivision(tournamentId: string): Promise<Divis
     .select("*")
     .single();
   if (error) throw new Error(error.message);
-  return data as Division;
+  return toDivision(data as Record<string, unknown>);
 }
 
 export async function getDivision(tournamentId: string, divisionId?: string | null): Promise<Division> {
@@ -184,6 +198,7 @@ export async function ensureLeagues(tournamentId: string, divisionId: string, co
 export async function regenerateLeagueMatches(tournamentId: string, divisionId: string) {
   const db = supabaseAdmin();
   const tournament = await getTournament(tournamentId);
+  const division = await getDivision(tournamentId, divisionId);
   const [leagues, teamResult] = await Promise.all([
     getQualifyingLeagues(tournamentId, divisionId),
     db.from("teams").select("*").eq("tournament_id", tournamentId).eq("division_id", divisionId).order("sort_order"),
@@ -210,7 +225,7 @@ export async function regenerateLeagueMatches(tournamentId: string, divisionId: 
     const members = teams
       .filter((t) => t.league_id === league.id)
       .sort((a, b) => a.sort_order - b.sort_order);
-    for (const pair of roundRobin(members.length)) {
+    for (const pair of qualifyingPairs(members.length, division.qualifying_match_order)) {
       drafts.push({
         leagueId: league.id,
         round: pair.round,
@@ -241,7 +256,7 @@ export async function regenerateLeagueMatches(tournamentId: string, divisionId: 
   await autoAssignSchedule(tournamentId, divisionId, "qualifying", {
     startTime: tournament.start_time,
     minutesPerMatch: tournament.minutes_per_match,
-    courts: tournament.courts,
+    courts: divisionCourts(division, tournament),
   });
 
   return inserted as Match[];
@@ -279,9 +294,9 @@ export async function autoAssignSchedule(
   // 各級の同じラウンドがまとまるように並べる。
   // 例: Aトーナメントの準々決勝と、Cリーグの1巡目が同じ時間帯に並ぶ。
   // 3位決定戦は同じラウンドの中で決勝より前に置く。
-  const tierOrder = new Map(
-    normalizeTiers((await getTournament(tournamentId)).bracket_tiers).map((t, i) => [t.key, i])
-  );
+  const tournament = await getTournament(tournamentId);
+  const division = await getDivision(tournamentId, divisionId);
+  const tierOrder = new Map(divisionTiers(division, tournament).map((t, i) => [t.key, i]));
   const ordered = [...matches].sort((a, b) => {
     const ra = a.round ?? 0;
     const rb = b.round ?? 0;
@@ -342,10 +357,13 @@ export async function generateBracket(
 ) {
   const db = supabaseAdmin();
   const state = await getState(tournamentId, divisionId);
-  const { tournament, teams, matches } = state;
+  const { tournament, division, teams, matches } = state;
   const qualifyingLeagues = state.leagues.filter((l) => l.tier_key === null);
 
-  const tiers = normalizeTiers(tournament.bracket_tiers);
+  if (!division.finals_enabled) {
+    throw new Error("この部門は予選リーグの順位を最終順位として使う設定です。決勝ラウンドは作成しません。");
+  }
+  const tiers = divisionTiers(division, tournament);
   const plans = planBracketsFromLeagues({
     leagues: qualifyingLeagues,
     teams,
@@ -386,7 +404,7 @@ export async function generateBracket(
   await autoAssignSchedule(tournamentId, divisionId, "finals", {
     startTime: options?.startTime || tournament.start_time,
     minutesPerMatch: tournament.minutes_per_match,
-    courts: tournament.courts,
+    courts: divisionCourts(division, tournament),
   });
 
   await db

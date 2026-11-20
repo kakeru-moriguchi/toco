@@ -8,6 +8,7 @@ import { matchGroupName, sideName } from "@/lib/view";
 import { matchSets, maxSets, playsAllGames, setsWon, totalPoints, validateSets } from "@/lib/score";
 import { EmptyBlock, ErrorBlock, LoadingBlock, PageShell } from "@/components/ui";
 import type { SetScore } from "@/lib/types";
+import { divisionGameLabels } from "@/lib/divisionFormat";
 
 /** 入力中は空欄を許したいので、文字列で持っておく */
 type SetInput = { a: string; b: string };
@@ -27,7 +28,7 @@ function SetRow({
   const clean = (s: string) => s.replace(/[^0-9]/g, "").slice(0, 2);
   return (
     <div className="flex items-center gap-2">
-      <span className="w-[74px] shrink-0 whitespace-nowrap text-sm font-black text-court-800">{label}</span>
+      <span className="w-[108px] shrink-0 text-xs font-black leading-tight text-court-800">{label}</span>
       <input
         type="text"
         inputMode="numeric"
@@ -154,7 +155,8 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
     );
   }
 
-  const setLabel = (i: number) => (setsToWin === 1 ? "スコア" : `第${i + 1}${fixedGames ? "ゲーム" : "セット"}`);
+  const gameLabels = divisionGameLabels(state.division);
+  const setLabel = (i: number) => (setsToWin === 1 ? "スコア" : gameLabels[i] || `第${i + 1}${fixedGames ? "ゲーム" : "セット"}`);
   const detailText = sets.map((s) => `${s.a}-${s.b}`).join(" / ");
   const winnerName = check.winner === "a" ? teamA : teamB;
 

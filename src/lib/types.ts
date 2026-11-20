@@ -129,6 +129,17 @@ export type Division = {
   name: string;
   sort_order: number;
   is_active: boolean;
+  /** null のときは大会共通設定を使う */
+  league_count: number | null;
+  /** null のときは大会共通設定を使う */
+  courts: string[] | null;
+  /** null のときは大会共通設定を使う */
+  bracket_tiers: BracketTier[] | null;
+  /** 50歳以上など、予選総当たりだけで完結する部門では false */
+  finals_enabled: boolean;
+  qualifying_match_order: "balanced" | "toco_5_team";
+  /** 3ゲーム制の表示名。例: 女子ダブルス / 男子ダブルス / ミックスダブルス */
+  game_labels: string[] | null;
   created_at: string;
   updated_at: string;
 };

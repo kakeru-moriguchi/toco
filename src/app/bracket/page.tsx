@@ -10,6 +10,7 @@ import { computeStandings } from "@/lib/standings";
 import { scoreText, sideName, sortMatches, teamById, tierLeagueTeams } from "@/lib/view";
 import { tierRangeLabel } from "@/lib/tiers";
 import { setsDetail } from "@/lib/score";
+import { divisionTiers } from "@/lib/divisionFormat";
 
 export default function BracketPage() {
   const { state, loading, error, refresh, updatedAt } = useTournamentState();
@@ -18,7 +19,7 @@ export default function BracketPage() {
   // 実際に試合が作られている級だけをタブに出す
   const tiers = useMemo(() => {
     if (!state) return [];
-    return state.tournament.bracket_tiers.filter((t) =>
+    return divisionTiers(state.division, state.tournament).filter((t) =>
       state.matches.some((m) => m.tier_key === t.key)
     );
   }, [state]);
@@ -70,8 +71,8 @@ export default function BracketPage() {
 
       {state && !hasRounds && (
         <EmptyBlock
-          title="決勝ラウンドはまだ作成されていません"
-          hint="予選リーグが終わると、主催者が順位をもとに組み合わせを作成します。"
+          title={state.division.finals_enabled ? "決勝ラウンドはまだ作成されていません" : "この部門は決勝ラウンドを行いません"}
+          hint={state.division.finals_enabled ? "予選リーグが終わると、主催者が順位をもとに組み合わせを作成します。" : "リーグ表・順位ページの順位が最終順位です。"}
         />
       )}
 

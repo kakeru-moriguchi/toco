@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { defaultLeagueName, ensureLeagues, getDivision, getState, getTournament } from "@/lib/data";
+import { divisionLeagueCount } from "@/lib/divisionFormat";
 import { divisionIdFromRequest, errorMessage, fail, ok, requireAdmin, tournamentIdFromRequest } from "@/lib/api";
 import type { Team } from "@/lib/types";
 
@@ -231,7 +232,7 @@ export async function POST(req: NextRequest) {
       if ((count ?? 0) > 0) {
         return fail("対戦カード作成後はリーグを振り分け直せません。先に対戦カードをリセットしてください。", 409);
       }
-      const leagues = await ensureLeagues(tournament.id, division.id, tournament.league_count);
+      const leagues = await ensureLeagues(tournament.id, division.id, divisionLeagueCount(division, tournament));
       const state = await getState(tournament.id, division.id);
       let teams: Team[] = [...state.teams].sort((a, b) => a.sort_order - b.sort_order);
       if (action === "shuffle") {
@@ -270,7 +271,7 @@ export async function POST(req: NextRequest) {
       if (error) throw new Error(error.message);
     } else if (action === "renumber_leagues") {
       // ①②③… の形式に一括で付け直す（キーボードから入力しにくいため）
-      const leagues = await ensureLeagues(tournament.id, division.id, tournament.league_count);
+      const leagues = await ensureLeagues(tournament.id, division.id, divisionLeagueCount(division, tournament));
       for (let i = 0; i < leagues.length; i++) {
         await db.from("leagues").update({ name: defaultLeagueName(i) }).eq("id", leagues[i].id);
       }

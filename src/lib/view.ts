@@ -1,5 +1,6 @@
 import { bracketRoundName } from "./bracket";
 import { headlineScore } from "./score";
+import { divisionTiers } from "./divisionFormat";
 import type { League, Match, Slot, Team, TournamentState } from "./types";
 
 /** 表示用のちょっとした変換をまとめたもの */
@@ -41,7 +42,7 @@ export function maxBracketRound(matches: Match[], tierKey?: string | null): numb
 /** その試合が属する級の表示名（"Aトーナメント" など）。予選リーグなら空文字 */
 export function tierName(match: Match, state: TournamentState): string {
   if (!match.tier_key) return "";
-  const tier = state.tournament.bracket_tiers.find((t) => t.key === match.tier_key);
+  const tier = divisionTiers(state.division, state.tournament).find((t) => t.key === match.tier_key);
   return tier?.name ?? "";
 }
 

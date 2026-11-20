@@ -20,6 +20,25 @@ test("bracket planning avoids same-league opening matches and adds third place",
   assert.equal(planned.filter((match) => match.isThirdPlace).length, 1);
 });
 
+test("six-team two-league bracket gives first-place byes and cross-league opening matches", () => {
+  const six: Qualifier[] = [
+    { teamId: "A1", teamName: "A1", leagueName: "A", rankInLeague: 1, label: "A1" },
+    { teamId: "B1", teamName: "B1", leagueName: "B", rankInLeague: 1, label: "B1" },
+    { teamId: "B2", teamName: "B2", leagueName: "B", rankInLeague: 2, label: "B2" },
+    { teamId: "A2", teamName: "A2", leagueName: "A", rankInLeague: 2, label: "A2" },
+    { teamId: "A3", teamName: "A3", leagueName: "A", rankInLeague: 3, label: "A3" },
+    { teamId: "B3", teamName: "B3", leagueName: "B", rankInLeague: 3, label: "B3" },
+  ];
+  const planned = planBracket(six, { thirdPlaceMatch: true });
+  const opening = planned.filter((match) => match.round === 1);
+  assert.equal(opening.length, 2);
+  assert.deepEqual(new Set(opening.flatMap((match) => [match.teamAId, match.teamBId])), new Set(["A2", "A3", "B2", "B3"]));
+  for (const match of opening) assert.notEqual(match.teamAId?.slice(0, 1), match.teamBId?.slice(0, 1));
+  const semis = planned.filter((match) => match.round === 2 && !match.isThirdPlace);
+  assert.ok(semis.some((match) => match.teamAId === "A1" || match.teamBId === "A1"));
+  assert.ok(semis.some((match) => match.teamAId === "B1" || match.teamBId === "B1"));
+});
+
 function bracketMatch(patch: Partial<Match> & Pick<Match, "id">): Match {
   return {
     tournament_id: "t",

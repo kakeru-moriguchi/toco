@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { ensureLeagues, getDivisions, getTournament } from "@/lib/data";
 import { errorMessage, fail, ok, requireAdmin, tournamentIdFromRequest } from "@/lib/api";
+import { divisionLeagueCount } from "@/lib/divisionFormat";
 
 export const dynamic = "force-dynamic";
 
@@ -51,11 +52,44 @@ export async function POST(req: NextRequest) {
         .select("*")
         .single();
       if (error) throw new Error(error.code === "23505" ? "同じ名前の部門があります。" : error.message);
-      await ensureLeagues(tournament.id, data.id, tournament.league_count);
+      await ensureLeagues(tournament.id, data.id, divisionLeagueCount(data, tournament));
       return ok({ division: data, divisions: await divisionsWithTeamCounts(tournament.id) });
     }
 
     const id = String(body.id ?? "");
+    if (action === "apply_toco_pdf_format") {
+      const divisions = await getDivisions(tournament.id);
+      const upper = [
+        { key: "A", name: "上位トーナメント", mode: "top", from_rank: 1, to_rank: 2, bottom_count: 1, format: "bracket", third_place: true },
+        { key: "B", name: "下位トーナメント", mode: "rest", from_rank: 3, to_rank: 5, bottom_count: 1, format: "bracket", third_place: false },
+      ];
+      const middle = [
+        { key: "A", name: "上位トーナメント", mode: "top", from_rank: 1, to_rank: 3, bottom_count: 1, format: "bracket", third_place: true },
+        { key: "B", name: "下位トーナメント", mode: "rest", from_rank: 4, to_rank: 5, bottom_count: 1, format: "bracket", third_place: false },
+      ];
+      let updated = 0;
+      for (const item of divisions) {
+        const compact = item.name.replace(/\s/g, "");
+        const patch = compact.includes("初中")
+          ? { league_count: 4, courts: ["1", "2", "3", "4"], bracket_tiers: upper, finals_enabled: true }
+          : compact.includes("中上")
+            ? { league_count: 2, courts: ["5", "6"], bracket_tiers: middle, finals_enabled: true }
+            : compact.includes("50")
+              ? { league_count: 1, courts: ["7", "8"], bracket_tiers: null, finals_enabled: false }
+              : null;
+        if (!patch) continue;
+        const { error } = await db.from("divisions").update({
+          ...patch,
+          qualifying_match_order: "toco_5_team",
+          game_labels: ["女子ダブルス", "男子ダブルス", "ミックスダブルス"],
+          updated_at: new Date().toISOString(),
+        }).eq("id", item.id).eq("tournament_id", tournament.id);
+        if (error) throw new Error(error.message);
+        updated++;
+      }
+      if (updated === 0) return fail("「初中級」「中上級」「50歳以上」のいずれかを含む部門名が見つかりませんでした。");
+      return ok({ updated, divisions: await divisionsWithTeamCounts(tournament.id) });
+    }
     if (!id) return fail("対象の部門が指定されていません。");
     const { data: division, error: findError } = await db
       .from("divisions")
@@ -91,7 +125,7 @@ export async function POST(req: NextRequest) {
         .eq("id", id)
         .eq("tournament_id", tournament.id);
       if (error) throw new Error(error.message);
-      await ensureLeagues(tournament.id, id, tournament.league_count);
+      await ensureLeagues(tournament.id, id, divisionLeagueCount(division, tournament));
     } else {
       return fail("不明な操作です。");
     }

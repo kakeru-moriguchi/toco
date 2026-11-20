@@ -36,6 +36,16 @@ export function roundRobin(teamCount: number): RoundRobinPair[] {
   return out;
 }
 
+/** PDFの5チームリーグで指定された10試合の進行順。5チーム以外は通常のサークル法。 */
+export function qualifyingPairs(teamCount: number, order: "balanced" | "toco_5_team"): RoundRobinPair[] {
+  if (order !== "toco_5_team" || teamCount !== 5) return roundRobin(teamCount);
+  const pairs = [
+    [0, 1], [2, 3], [0, 4], [1, 2], [3, 4],
+    [0, 2], [1, 3], [2, 4], [0, 3], [1, 4],
+  ];
+  return pairs.map(([a, b], index) => ({ round: index + 1, a, b }));
+}
+
 export type SchedulableMatch = {
   id: string;
   teamAId: string | null;

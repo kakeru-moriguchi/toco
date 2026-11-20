@@ -84,7 +84,7 @@
 | テーブル | 役割 | 主なカラム |
 | --- | --- | --- |
 | `tournaments` | 大会情報と大会設定（複数大会を保存可能） | `name` `event_date` `venue` `note` `league_count` `teams_per_league` `point_target` **`sets_to_win`** `start_time` `minutes_per_match` `courts` `tiebreakers` **`bracket_tiers`** `phase` `archived_at` |
-| `divisions` | 大会内の部門 | `tournament_id` `name` `sort_order` `is_active` |
+| `divisions` | 大会内の部門と部門別大会形式 | `tournament_id` `name` `league_count` `courts` `bracket_tiers` `finals_enabled` `qualifying_match_order` `game_labels` `sort_order` `is_active` |
 | `leagues` | 予選リーグ＋総当たり形式の級のリーグ | `division_id` `name` `sort_order` **`tier_key`**（予選は null） |
 | `teams` | チーム | `division_id` `name` `members` `league_id` `sort_order` |
 | `matches` | 試合（リーグ戦・トーナメント共通） | `division_id` `stage` `league_id` **`tier_key`** `round` `bracket_index` `is_third_place` `match_no` `court` `scheduled_at` `status` `team_a_id` `team_b_id` `team_a_label` `team_b_label` **`sets`** `score_a` `score_b` `winner_team_id` `next_match_id` `next_slot` `loser_next_match_id` `loser_next_slot` |
@@ -352,6 +352,7 @@
    > | `migration_003_sets.sql` | セット制（2セット先取など）に対応 |
 > | `migration_004_multi_tournaments.sql` | 複数大会と安全なアーカイブに対応 |
 > | `migration_005_divisions.sql` | 大会内の複数部門とデータ分離に対応 |
+> | `migration_006_division_formats.sql` | 部門別リーグ数・コート・決勝方式とPDF大会形式に対応 |
    >
    > （これから初めて `schema.sql` を実行する場合は、マイグレーションは不要です）
 

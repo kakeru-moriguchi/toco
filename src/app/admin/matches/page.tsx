@@ -6,6 +6,7 @@ import { useTournamentState } from "@/lib/useTournamentState";
 import { adminPost } from "@/lib/adminApi";
 import { LoadingBlock, StatusBadge } from "@/components/ui";
 import { ResultEditor } from "@/components/ResultEditor";
+import { divisionGameLabels } from "@/lib/divisionFormat";
 import { matchGroupName, sideName, sortMatches } from "@/lib/view";
 
 export default function AdminMatchesPage() {
@@ -107,6 +108,7 @@ export default function AdminMatchesPage() {
                   teamB={sideName(m, "b", state.teams)}
                   busy={busy}
                   setsToWin={state.tournament.sets_to_win}
+                  gameLabels={divisionGameLabels(state.division)}
                   onSave={(sets) =>
                     call("/api/admin/matches", { action: "result", id: m.id, sets }, "結果を保存しました")
                   }
