@@ -114,7 +114,7 @@ export async function logMatchEvent(params: {
   payload?: Record<string, unknown>;
 }) {
   const db = supabaseAdmin();
-  await db.from("match_events").insert({
+  const { error } = await db.from("match_events").insert({
     tournament_id: params.tournamentId,
     division_id: params.divisionId,
     match_id: params.matchId,
@@ -124,6 +124,7 @@ export async function logMatchEvent(params: {
     actor: params.actor ?? "team",
     payload: params.payload ?? {},
   });
+  if (error) throw new Error(error.message);
 }
 
 /**
@@ -137,13 +138,14 @@ export function defaultLeagueName(index: number): string {
 /** 予選のリーグだけを返す（総当たり形式の級のリーグは除く） */
 export async function getQualifyingLeagues(tournamentId: string, divisionId: string): Promise<League[]> {
   const db = supabaseAdmin();
-  const { data } = await db
+  const { data, error } = await db
     .from("leagues")
     .select("*")
     .eq("tournament_id", tournamentId)
     .eq("division_id", divisionId)
     .is("tier_key", null)
     .order("sort_order");
+  if (error) throw new Error(error.message);
   return (data ?? []) as League[];
 }
 
@@ -160,10 +162,16 @@ export async function ensureLeagues(tournamentId: string, divisionId: string, co
     for (let i = current.length; i < count; i++) {
       rows.push({ tournament_id: tournamentId, division_id: divisionId, name: defaultLeagueName(i), sort_order: i });
     }
-    if (rows.length > 0) await db.from("leagues").insert(rows);
+    if (rows.length > 0) {
+      const { error } = await db.from("leagues").insert(rows);
+      if (error) throw new Error(error.message);
+    }
   } else if (current.length > count) {
     const remove = current.slice(count).map((l) => l.id);
-    if (remove.length > 0) await db.from("leagues").delete().in("id", remove);
+    if (remove.length > 0) {
+      const { error } = await db.from("leagues").delete().in("id", remove);
+      if (error) throw new Error(error.message);
+    }
   }
 
   return getQualifyingLeagues(tournamentId, divisionId);
@@ -176,20 +184,23 @@ export async function ensureLeagues(tournamentId: string, divisionId: string, co
 export async function regenerateLeagueMatches(tournamentId: string, divisionId: string) {
   const db = supabaseAdmin();
   const tournament = await getTournament(tournamentId);
-  const [leagues, { data: teamData }] = await Promise.all([
+  const [leagues, teamResult] = await Promise.all([
     getQualifyingLeagues(tournamentId, divisionId),
     db.from("teams").select("*").eq("tournament_id", tournamentId).eq("division_id", divisionId).order("sort_order"),
   ]);
+  if (teamResult.error) throw new Error(teamResult.error.message);
+  const teamData = teamResult.data;
   const teams = (teamData ?? []) as Team[];
 
   // 予選リーグの試合だけを消す（総当たり形式の級の試合は残す）
   if (leagues.length > 0) {
-    await db
+    const { error } = await db
       .from("matches")
       .delete()
       .eq("tournament_id", tournamentId)
       .eq("stage", "league")
       .in("league_id", leagues.map((l) => l.id));
+    if (error) throw new Error(error.message);
   }
 
   // ラウンドごとに全リーグを横並びで進める（同じ時間帯に各コートで1試合ずつ）
@@ -251,10 +262,11 @@ export async function autoAssignSchedule(
   const db = supabaseAdmin();
   const qualifyingLeagueIds = new Set((await getQualifyingLeagues(tournamentId, divisionId)).map((l) => l.id));
 
-  const { data: tournamentMatchData } = await db
+  const { data: tournamentMatchData, error: tournamentMatchError } = await db
     .from("matches")
     .select("*")
     .eq("tournament_id", tournamentId);
+  if (tournamentMatchError) throw new Error(tournamentMatchError.message);
   const tournamentMatches = (tournamentMatchData ?? []) as Match[];
   const all = tournamentMatches.filter((match) => match.division_id === divisionId);
 
@@ -299,7 +311,7 @@ export async function autoAssignSchedule(
   );
 
   for (const a of assignments) {
-    await db
+    const { error } = await db
       .from("matches")
       .update({
         match_no: a.matchNo + offset,
@@ -307,7 +319,10 @@ export async function autoAssignSchedule(
         scheduled_at: a.scheduledAt,
         updated_at: new Date().toISOString(),
       })
-      .eq("id", a.id);
+      .eq("id", a.id)
+      .eq("tournament_id", tournamentId)
+      .eq("division_id", divisionId);
+    if (error) throw new Error(error.message);
   }
 }
 
@@ -347,15 +362,17 @@ export async function generateBracket(
   }
 
   // 前回作った決勝ラウンドを消す（トーナメントの試合と、総当たり級のリーグごと）
-  await db
+  const { error: deleteMatchError } = await db
     .from("matches")
     .delete()
     .eq("tournament_id", tournamentId)
     .eq("division_id", divisionId)
     .eq("stage", "bracket");
+  if (deleteMatchError) throw new Error(deleteMatchError.message);
   const oldTierLeagues = state.leagues.filter((l) => l.tier_key !== null);
   if (oldTierLeagues.length > 0) {
-    await db.from("leagues").delete().in("id", oldTierLeagues.map((l) => l.id));
+    const { error } = await db.from("leagues").delete().in("id", oldTierLeagues.map((l) => l.id));
+    if (error) throw new Error(error.message);
   }
 
   let total = 0;
@@ -442,7 +459,15 @@ async function createTierBracket(
       patch.loser_next_match_id = idByKey.get(p.loserNextKey) ?? null;
       patch.loser_next_slot = p.loserNextSlot;
     }
-    if (Object.keys(patch).length > 0) await db.from("matches").update(patch).eq("id", id);
+    if (Object.keys(patch).length > 0) {
+      const { error } = await db
+        .from("matches")
+        .update(patch)
+        .eq("id", id)
+        .eq("tournament_id", tournamentId)
+        .eq("division_id", divisionId);
+      if (error) throw new Error(error.message);
+    }
   }
 
   return created.length;
@@ -514,10 +539,13 @@ export async function recomputeBracket(tournamentId: string, divisionId: string)
   if (matches.length === 0) return;
 
   for (const { id, patch } of resolveBracketProgress(matches)) {
-    await db
+    const { error } = await db
       .from("matches")
       .update({ ...patch, updated_at: new Date().toISOString() })
-      .eq("id", id);
+      .eq("id", id)
+      .eq("tournament_id", tournamentId)
+      .eq("division_id", divisionId);
+    if (error) throw new Error(error.message);
   }
 }
 
@@ -575,6 +603,8 @@ export async function saveResult(input: ResultInput): Promise<Match> {
       updated_at: new Date().toISOString(),
     })
     .eq("id", match.id)
+    .eq("tournament_id", match.tournament_id)
+    .eq("division_id", match.division_id)
     .select("*")
     .single();
   if (error) throw new Error(error.message);
@@ -614,7 +644,7 @@ export async function clearResult(matchId: string, tournamentId?: string, divisi
     throw new Error("選択中の部門に属さない試合です。");
   }
 
-  await db
+  const { error } = await db
     .from("matches")
     .update({
       sets: [],
@@ -626,7 +656,10 @@ export async function clearResult(matchId: string, tournamentId?: string, divisi
       reported_by: null,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", matchId);
+    .eq("id", matchId)
+    .eq("tournament_id", match.tournament_id)
+    .eq("division_id", match.division_id);
+  if (error) throw new Error(error.message);
 
   await logMatchEvent({
     tournamentId: match.tournament_id,

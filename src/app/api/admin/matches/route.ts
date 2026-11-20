@@ -5,6 +5,69 @@ import { divisionIdFromRequest, errorMessage, fail, ok, readSets, requireAdmin, 
 
 export const dynamic = "force-dynamic";
 
+type CourtSlot = {
+  id: string;
+  division_id: string;
+  court: string;
+  scheduled_at: string;
+};
+
+function normalizeScheduledAt(value: string) {
+  const [hour, minute] = value.split(":");
+  return `${hour.padStart(2, "0")}:${minute}`;
+}
+
+function findCourtConflict(rows: CourtSlot[], watchedIds: Set<string>) {
+  const occupied = new Map<string, CourtSlot>();
+  for (const row of rows) {
+    if (!row.court || !row.scheduled_at) continue;
+    const key = `${normalizeScheduledAt(row.scheduled_at)}\u0000${row.court}`;
+    const existing = occupied.get(key);
+    if (existing && (watchedIds.has(existing.id) || watchedIds.has(row.id))) {
+      return { first: existing, second: row };
+    }
+    occupied.set(key, row);
+  }
+  return null;
+}
+
+async function validateCourtSchedule(params: {
+  tournamentId: string;
+  divisionId: string;
+  updates: Map<string, Record<string, unknown>>;
+  newMatch?: CourtSlot;
+}) {
+  const db = supabaseAdmin();
+  const { data, error } = await db
+    .from("matches")
+    .select("id, division_id, court, scheduled_at")
+    .eq("tournament_id", params.tournamentId);
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []) as CourtSlot[];
+  const byId = new Map(rows.map((row) => [row.id, row]));
+
+  for (const [id, patch] of params.updates) {
+    const current = byId.get(id);
+    if (!current || current.division_id !== params.divisionId) {
+      throw new Error("選択中の部門に属さない試合が含まれています。");
+    }
+    if (typeof patch.court === "string") current.court = patch.court;
+    if (typeof patch.scheduled_at === "string") current.scheduled_at = patch.scheduled_at;
+  }
+  if (params.newMatch) rows.push(params.newMatch);
+
+  const watched = new Set(
+    [...params.updates]
+      .filter(([, patch]) => typeof patch.court === "string" || typeof patch.scheduled_at === "string")
+      .map(([id]) => id)
+  );
+  if (params.newMatch) watched.add(params.newMatch.id);
+  const conflict = findCourtConflict(rows, watched);
+  if (conflict) {
+    throw new Error("同じ時刻の同じコートに別の試合があります。大会全体で重複しない時刻またはコートを指定してください。");
+  }
+}
+
 /**
  * 主催者による試合の編集
  * action:
@@ -41,10 +104,11 @@ export async function POST(req: NextRequest) {
       if (!Number.isFinite(matchNo) || matchNo < 1 || matchNo > 9999) {
         return fail("試合番号は1〜9999で入力してください。");
       }
-      const scheduledAt = String(body.scheduled_at ?? "").trim();
+      let scheduledAt = String(body.scheduled_at ?? "").trim();
       if (scheduledAt && !/^\d{1,2}:\d{2}$/.test(scheduledAt)) {
         return fail("時刻は 09:00 の形式で入力してください。");
       }
+      if (scheduledAt) scheduledAt = normalizeScheduledAt(scheduledAt);
 
       const [{ data: league }, { data: teams }] = await Promise.all([
         db.from("leagues").select("id").eq("id", leagueId).eq("tournament_id", tournament.id).eq("division_id", division.id).is("tier_key", null).maybeSingle(),
@@ -56,6 +120,17 @@ export async function POST(req: NextRequest) {
       }
 
       const court = String(body.court ?? "").trim().slice(0, 20);
+      await validateCourtSchedule({
+        tournamentId: tournament.id,
+        divisionId: division.id,
+        updates: new Map<string, Record<string, unknown>>(),
+        newMatch: {
+          id: "__new_match__",
+          division_id: division.id,
+          court,
+          scheduled_at: scheduledAt,
+        },
+      });
       const { data: created, error } = await db
         .from("matches")
         .insert({
@@ -128,12 +203,16 @@ export async function POST(req: NextRequest) {
       if (status === "done") {
         return fail("「終了」にするには結果を入力してください。");
       }
-      await db
+      const { data: updated, error } = await db
         .from("matches")
         .update({ status, updated_at: new Date().toISOString() })
         .eq("id", id)
         .eq("tournament_id", tournament.id)
-        .eq("division_id", division.id);
+        .eq("division_id", division.id)
+        .select("id")
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      if (!updated) return fail("対象の試合が見つかりません。画面を再読み込みしてください。");
       await logMatchEvent({
         tournamentId: tournament.id,
         divisionId: division.id,
@@ -157,7 +236,7 @@ export async function POST(req: NextRequest) {
         if (typeof item.scheduled_at === "string") {
           const v = item.scheduled_at.trim();
           if (v && !/^\d{1,2}:\d{2}$/.test(v)) return fail("時刻は 09:00 の形式で入力してください。");
-          patch.scheduled_at = v;
+          patch.scheduled_at = v ? normalizeScheduledAt(v) : "";
         }
         if (item.match_no !== undefined) {
           const n = Math.trunc(Number(item.match_no));
@@ -167,6 +246,12 @@ export async function POST(req: NextRequest) {
 
         prepared.push({ matchId, patch });
       }
+
+      await validateCourtSchedule({
+        tournamentId: tournament.id,
+        divisionId: division.id,
+        updates: new Map(prepared.map(({ matchId, patch }) => [matchId, patch])),
+      });
 
       // 全行を検証してから保存し、入力ミスで途中まで更新されるのを防ぐ。
       for (const { matchId, patch } of prepared) {
@@ -184,13 +269,18 @@ export async function POST(req: NextRequest) {
       if (typeof body.scheduled_at === "string") {
         const v = body.scheduled_at.trim();
         if (v && !/^\d{1,2}:\d{2}$/.test(v)) return fail("時刻は 09:00 の形式で入力してください。");
-        patch.scheduled_at = v;
+        patch.scheduled_at = v ? normalizeScheduledAt(v) : "";
       }
       if (body.match_no !== undefined) {
         const n = Math.trunc(Number(body.match_no));
         if (!Number.isFinite(n) || n < 0 || n > 9999) return fail("試合番号が不正です。");
         patch.match_no = n;
       }
+      await validateCourtSchedule({
+        tournamentId: tournament.id,
+        divisionId: division.id,
+        updates: new Map([[id, patch]]),
+      });
       const { error } = await db
         .from("matches")
         .update(patch)
@@ -220,11 +310,15 @@ export async function POST(req: NextRequest) {
       await db
         .from("matches")
         .update({ match_no: b.match_no, scheduled_at: b.scheduled_at, court: b.court })
-        .eq("id", a.id);
+        .eq("id", a.id)
+        .eq("tournament_id", tournament.id)
+        .eq("division_id", division.id);
       await db
         .from("matches")
         .update({ match_no: a.match_no, scheduled_at: a.scheduled_at, court: a.court })
-        .eq("id", b.id);
+        .eq("id", b.id)
+        .eq("tournament_id", tournament.id)
+        .eq("division_id", division.id);
     } else {
       return fail("不明な操作です。");
     }
