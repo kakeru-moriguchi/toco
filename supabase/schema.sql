@@ -226,7 +226,14 @@ create policy "public read matches"     on matches     for select using (true);
 -- match_events は参加者に見せないので select ポリシーを作らない（＝anonからは読めない）
 
 grant select on table divisions to anon, authenticated;
-grant all privileges on table divisions to service_role;
+grant all privileges on table
+  tournaments,
+  divisions,
+  leagues,
+  teams,
+  matches,
+  match_events
+to service_role;
 
 -- ------------------------------------------------------------
 -- リアルタイム配信の対象テーブル
