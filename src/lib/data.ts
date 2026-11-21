@@ -91,14 +91,50 @@ export async function getDivision(tournamentId: string, divisionId?: string | nu
   return division;
 }
 
+/**
+ * 参加者画面の初期表示用に、大会と部門を1回のPostgRESTリクエストで取得する。
+ * 従来は getTournament → getDivisions → getDivision（内部で再度 getDivisions）の順に
+ * 同じ部門一覧を2回取得していたため、モバイル回線ではここだけで数秒かかっていた。
+ */
+async function getTournamentWithDivisions(
+  tournamentId?: string | null
+): Promise<{ tournament: Tournament; divisions: Division[] }> {
+  const db = supabaseAdmin();
+  let query = db.from("tournaments").select("*, divisions(*)");
+  query = tournamentId
+    ? query.eq("id", tournamentId)
+    : query.is("archived_at", null).order("created_at", { ascending: false }).limit(1);
+  const { data, error } = await query;
+  if (error) throw new Error(error.message);
+
+  if (!data || data.length === 0) {
+    const tournament = await getTournament(tournamentId);
+    const division = await createDefaultDivision(tournament.id);
+    return { tournament, divisions: [division] };
+  }
+
+  const row = data[0] as Record<string, unknown>;
+  const rawDivisions = Array.isArray(row.divisions) ? row.divisions : [];
+  const { divisions: _relatedDivisions, ...tournamentRow } = row;
+  void _relatedDivisions;
+  const tournament = toTournament(tournamentRow);
+  let divisions = rawDivisions
+    .map((item) => toDivision(item as Record<string, unknown>))
+    .sort((a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at));
+  if (divisions.length === 0) divisions = [await createDefaultDivision(tournament.id)];
+  return { tournament, divisions };
+}
+
 export async function getState(
   tournamentId?: string | null,
   divisionId?: string | null
 ): Promise<TournamentState> {
   const db = supabaseAdmin();
-  const tournament = await getTournament(tournamentId);
-  const divisions = await getDivisions(tournament.id);
-  const division = await getDivision(tournament.id, divisionId);
+  const { tournament, divisions } = await getTournamentWithDivisions(tournamentId);
+  const division = divisionId
+    ? divisions.find((item) => item.id === divisionId)
+    : divisions.find((item) => item.is_active);
+  if (!division) throw new Error("対象の部門が見つかりませんでした。");
   const [leagues, teams, matches] = await Promise.all([
     db.from("leagues").select("*").eq("tournament_id", tournament.id).eq("division_id", division.id).order("sort_order"),
     db.from("teams").select("*").eq("tournament_id", tournament.id).eq("division_id", division.id).order("sort_order"),
