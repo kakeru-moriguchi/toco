@@ -15,7 +15,7 @@ const NAV = [
   { href: "/admin/teams", label: "チーム・リーグ分け" },
   { href: "/admin/matches", label: "対戦・結果" },
   { href: "/admin/schedule", label: "進行表" },
-  { href: "/admin/bracket", label: "トーナメント" },
+  { href: "/admin/bracket", label: "決勝ラウンド" },
 ];
 
 export function AdminShell({
