@@ -63,13 +63,13 @@ export function DivisionFormatEditor({
   const inherits = division.league_count === null && division.courts === null && division.bracket_tiers === null;
 
   return (
-    <div className="mt-3 border-t border-court-100 pt-3">
+    <div className="mt-3 min-w-0 overflow-hidden border-t border-court-100 pt-3">
       <button className="btn-ghost btn-sm w-full" onClick={() => setOpen((value) => !value)}>
         {open ? "大会形式の設定を閉じる" : "大会形式を設定"}
       </button>
 
       {open && (
-        <div className="mt-3 space-y-4 rounded-xl bg-court-50 p-3">
+        <div className="mt-3 min-w-0 space-y-4 overflow-hidden rounded-xl bg-court-50 p-3">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="label">
               リーグ数
@@ -101,11 +101,11 @@ export function DivisionFormatEditor({
             <div className="space-y-2">
               <p className="text-xs font-black text-court-800">決勝ラウンドの区分</p>
               {tiers.map((tier, index) => (
-                <div key={tier.key} className="space-y-2 rounded-xl bg-white p-3">
-                  <div className="flex items-center gap-2">
+                <div key={tier.key} className="min-w-0 space-y-2 overflow-hidden rounded-xl bg-white p-3">
+                  <div className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
                     <span className="chip bg-court-800 text-white">{tier.key}</span>
-                    <input className="field h-11 flex-1" value={tier.name} onChange={(e) => updateTier(index, { name: e.target.value })} />
-                    <button className="btn-danger btn-sm" disabled={tiers.length <= 1} onClick={() => setTiers((items) => items.filter((_, i) => i !== index))}>削除</button>
+                    <input className="field h-11 min-w-0" value={tier.name} onChange={(e) => updateTier(index, { name: e.target.value })} />
+                    <button className="btn-danger btn-sm col-span-2 w-full sm:col-span-1 sm:w-auto" disabled={tiers.length <= 1} onClick={() => setTiers((items) => items.filter((_, i) => i !== index))}>削除</button>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <select className="field h-11 w-auto" value={tier.mode} onChange={(e) => updateTier(index, { mode: e.target.value as TierMode })}>
@@ -136,10 +136,10 @@ export function DivisionFormatEditor({
           <p className="text-xs leading-relaxed text-ink-500">
             保存しても既存の試合結果は削除されません。リーグ数や試合順の変更は、次に対戦カードを作り直したときに反映されます。
           </p>
-          <div className="flex flex-wrap justify-end gap-2">
-            {!inherits && <button className="btn-ghost btn-sm" disabled={busy} onClick={onReset}>大会共通設定に戻す</button>}
+          <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end">
+            {!inherits && <button className="btn-ghost btn-sm w-full sm:w-auto" disabled={busy} onClick={onReset}>大会共通設定に戻す</button>}
             <button
-              className="btn-primary btn-sm"
+              className="btn-primary btn-sm w-full sm:w-auto"
               disabled={busy || Boolean(tierError) || !courts.trim()}
               onClick={() => onSave({
                 action: "update_format",
