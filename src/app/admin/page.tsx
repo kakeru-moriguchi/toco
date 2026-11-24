@@ -85,7 +85,7 @@ export default function AdminHomePage() {
                   <span className="hidden shrink-0 text-xs text-ink-500 sm:inline">
                     {matchGroupName(m, state)}
                   </span>
-                  <StatusBadge status={m.status} />
+                  <StatusBadge status={m.status} approvalStatus={m.approval_status} />
                 </li>
               ))}
               {upcomingMatches(state.matches, 1).length === 0 && (

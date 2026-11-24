@@ -339,10 +339,20 @@ export type BracketPatch = {
   patch: {
     team_a_id?: string | null;
     team_b_id?: string | null;
+    sets?: [];
     score_a?: null;
     score_b?: null;
     winner_team_id?: null;
     status?: "pending";
+    approval_status?: "none";
+    pending_sets?: [];
+    pending_score_a?: null;
+    pending_score_b?: null;
+    pending_winner_team_id?: null;
+    submitted_by_team_id?: null;
+    submitted_at?: null;
+    approved_by_team_id?: null;
+    approved_at?: null;
   };
 };
 
@@ -391,15 +401,38 @@ export function resolveBracketProgress(matches: Match[]): BracketPatch[] {
     }
 
     // 出場チームが入れ替わった試合に古い結果が残っていたら取り消す
-    if ((patch.team_a_id !== undefined || patch.team_b_id !== undefined) && m.status === "done") {
+    if (
+      (patch.team_a_id !== undefined || patch.team_b_id !== undefined) &&
+      (m.status === "done" || m.approval_status === "pending")
+    ) {
+      patch.sets = [];
       patch.score_a = null;
       patch.score_b = null;
       patch.winner_team_id = null;
       patch.status = "pending";
+      patch.approval_status = "none";
+      patch.pending_sets = [];
+      patch.pending_score_a = null;
+      patch.pending_score_b = null;
+      patch.pending_winner_team_id = null;
+      patch.submitted_by_team_id = null;
+      patch.submitted_at = null;
+      patch.approved_by_team_id = null;
+      patch.approved_at = null;
+      m.sets = [];
       m.score_a = null;
       m.score_b = null;
       m.winner_team_id = null;
       m.status = "pending";
+      m.approval_status = "none";
+      m.pending_sets = [];
+      m.pending_score_a = null;
+      m.pending_score_b = null;
+      m.pending_winner_team_id = null;
+      m.submitted_by_team_id = null;
+      m.submitted_at = null;
+      m.approved_by_team_id = null;
+      m.approved_at = null;
     }
 
     if (Object.keys(patch).length > 0) patches.push({ id: m.id, patch });

@@ -153,6 +153,18 @@ create table if not exists matches (
 
   reported_at   timestamptz,
   reported_by   text,                        -- 'team' / 'admin'
+
+  -- 参加者入力は承認されるまで正式結果へ反映しない
+  approval_status         text not null default 'none'
+                            check (approval_status in ('none','pending','approved')),
+  pending_sets            jsonb not null default '[]'::jsonb,
+  pending_score_a         int,
+  pending_score_b         int,
+  pending_winner_team_id  uuid references teams(id) on delete set null,
+  submitted_by_team_id    uuid references teams(id) on delete set null,
+  submitted_at            timestamptz,
+  approved_by_team_id     uuid references teams(id) on delete set null,
+  approved_at             timestamptz,
   updated_at    timestamptz not null default now()
 );
 create index if not exists matches_tournament_idx on matches(tournament_id, match_no);
@@ -169,7 +181,7 @@ create table if not exists match_events (
   tournament_id uuid not null references tournaments(id) on delete cascade,
   division_id   uuid not null references divisions(id) on delete restrict,
   match_id      uuid not null references matches(id) on delete cascade,
-  action        text not null,          -- 'report' / 'admin_edit' / 'reset' / 'status'
+  action        text not null,          -- 'report_pending' / 'approve' / 'admin_edit' / 'reset' / 'status'
   score_a       int,
   score_b       int,
   actor         text not null default 'team',

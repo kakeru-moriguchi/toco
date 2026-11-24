@@ -62,9 +62,10 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
 
   const [inputs, setInputs] = useState<SetInput[]>([]);
   const [setCount, setSetCount] = useState<SetInput>({ a: "", b: "" });
-  const [step, setStep] = useState<"input" | "confirm" | "done">("input");
+  const [step, setStep] = useState<"input" | "confirm" | "done" | "approved">("input");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [editingPending, setEditingPending] = useState(false);
   const [initialized, setInitialized] = useState(false);
 
   const match = useMemo(
@@ -78,7 +79,7 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
   // すでに結果がある場合は、その値を初期表示にする（修正しやすくするため）
   useEffect(() => {
     if (!match || !state || initialized) return;
-    const existing = matchSets(match);
+    const existing = match.approval_status === "pending" ? match.pending_sets : matchSets(match);
     setInputs(
       Array.from({ length: limit }, (_, i) =>
         existing[i] ? { a: String(existing[i].a), b: String(existing[i].b) } : { a: "", b: "" }
@@ -124,10 +125,31 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? "登録できませんでした。");
       setStep("done");
+      setEditingPending(false);
       refresh();
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "登録できませんでした。");
       setStep("input");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const approve = async () => {
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const res = await fetch(`/api/matches/${matchId}/report`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "approve" }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? "承認できませんでした。");
+      setStep("approved");
+      refresh();
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : "承認できませんでした。");
     } finally {
       setSubmitting(false);
     }
@@ -159,17 +181,37 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
   const setLabel = (i: number) => (setsToWin === 1 ? "スコア" : gameLabels[i] || `第${i + 1}${fixedGames ? "ゲーム" : "セット"}`);
   const detailText = sets.map((s) => `${s.a}-${s.b}`).join(" / ");
   const winnerName = check.winner === "a" ? teamA : teamB;
+  const pendingSets = match.pending_sets ?? [];
+  const pendingCheck = validateSets(pendingSets, setsToWin);
+  const pendingDetailText = pendingSets.map((s) => `${s.a}-${s.b}`).join(" / ");
+  const pendingWinnerName = match.pending_winner_team_id === match.team_a_id ? teamA : teamB;
+  const pendingLoserName = match.pending_winner_team_id === match.team_a_id ? teamB : teamA;
+
+  if (step === "approved") {
+    return (
+      <PageShell title="承認しました" backHref="/report">
+        <div className="card space-y-4 p-6 text-center">
+          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-court-100 text-3xl">✅</div>
+          <div>
+            <p className="text-lg font-black text-court-900">結果を正式に反映しました</p>
+            <p className="mt-2 text-sm font-bold text-ink-600">順位表・決勝ラウンドも自動で更新されます。</p>
+          </div>
+          <Link href="/report" className="btn-primary">試合一覧に戻る</Link>
+        </div>
+      </PageShell>
+    );
+  }
 
   // 送信完了画面
   if (step === "done") {
     return (
-      <PageShell title="送信しました" backHref="/report">
+      <PageShell title="承認待ちです" backHref="/report">
         <div className="card space-y-4 p-6 text-center">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-court-100 text-3xl">
             ✅
           </div>
           <div>
-            <p className="text-lg font-black text-court-900">結果を登録しました</p>
+            <p className="text-lg font-black text-court-900">結果を承認待ちで送信しました</p>
             <p className="mt-2 text-2xl font-black tabular-nums text-court-800">
               {setsToWin === 1 ? detailText : `${check.setsWon.a} - ${check.setsWon.b}`}
             </p>
@@ -177,21 +219,65 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
             <p className="mt-1 text-sm font-bold text-ink-700">勝ち：{winnerName}</p>
           </div>
           <p className="text-sm text-ink-500">
-            順位表・トーナメント表は自動で更新されます。
+            敗者側の「{check.winner === "a" ? teamB : teamA}」に承認してもらってください。
             <br />
-            間違えた場合は同じ画面から入力し直すか、主催者に伝えてください。
+            承認されるまでは順位表・決勝ラウンドへ反映されません。
           </p>
           <div className="grid gap-2">
             <Link href="/report" className="btn-primary">
               続けて別の試合を入力する
             </Link>
-            <Link href="/standings" className="btn-ghost">
-              順位表を見る
-            </Link>
             <Link href="/" className="btn-ghost">
               トップに戻る
             </Link>
           </div>
+        </div>
+      </PageShell>
+    );
+  }
+
+  if (match.approval_status === "pending" && !editingPending) {
+    return (
+      <PageShell title="結果の承認" subtitle={`${teamA} vs ${teamB}`} backHref="/report">
+        <div className="card space-y-5 p-5">
+          <div className="rounded-2xl bg-amber-50 p-4 text-center">
+            <p className="text-sm font-black text-amber-900">勝者側から結果が届いています</p>
+            <p className="mt-2 text-2xl font-black tabular-nums text-court-900">
+              {setsToWin === 1
+                ? `${pendingCheck.totalPoints.a} - ${pendingCheck.totalPoints.b}`
+                : `${pendingCheck.setsWon.a} - ${pendingCheck.setsWon.b}`}
+            </p>
+            {setsToWin > 1 && <p className="mt-1 text-sm font-bold text-ink-600">{pendingDetailText}</p>}
+            <p className="mt-2 text-sm font-black text-court-800">勝ち：{pendingWinnerName}</p>
+          </div>
+
+          <div className="rounded-xl border-2 border-court-200 bg-white p-4 text-center">
+            <p className="text-sm font-bold text-ink-700">敗者チーム</p>
+            <p className="mt-1 text-lg font-black text-court-900">{pendingLoserName}</p>
+            <p className="mt-2 text-xs leading-relaxed text-ink-500">
+              点数に間違いがなければ、敗者チームの代表者が承認してください。
+            </p>
+          </div>
+
+          {submitError && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{submitError}</p>}
+
+          <div className="grid gap-2">
+            <button
+              className="btn-accent"
+              onClick={() => {
+                if (confirm(`${pendingLoserName}の代表者として、この結果を承認します。よろしいですか？`)) approve();
+              }}
+              disabled={submitting}
+            >
+              {submitting ? "承認中…" : `${pendingLoserName}として承認する`}
+            </button>
+            <button className="btn-ghost" onClick={() => setEditingPending(true)} disabled={submitting}>
+              点数を修正して再送信する
+            </button>
+          </div>
+          <p className="text-center text-xs leading-relaxed text-ink-500">
+            承認後に正式結果となり、順位表・決勝ラウンドへ反映されます。
+          </p>
         </div>
       </PageShell>
     );
@@ -252,7 +338,9 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
             <br />
             <span className="text-sm font-bold text-ink-700">勝ち：{winnerName}</span>
           </p>
-          <p className="text-center text-sm font-bold text-ink-900">この結果で登録しますか？</p>
+          <p className="text-center text-sm font-bold text-ink-900">
+            勝者側として、この結果を敗者側へ送信しますか？
+          </p>
 
           {submitError && (
             <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-bold text-red-700">
@@ -262,7 +350,7 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
 
           <div className="grid gap-2">
             <button className="btn-accent" onClick={submit} disabled={submitting}>
-              {submitting ? "送信中…" : "はい、この結果で登録する"}
+              {submitting ? "送信中…" : "勝者側として承認待ちへ送信する"}
             </button>
             <button className="btn-ghost" onClick={() => setStep("input")} disabled={submitting}>
               いいえ、入力し直す
@@ -285,6 +373,11 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
           この試合はすでに登録済みです。
           <br />
           入力し直すと結果が上書きされます。
+        </div>
+      )}
+      {match.approval_status === "pending" && editingPending && (
+        <div className="card mb-3 border-l-4 border-l-amber-500 p-3 text-sm font-bold text-amber-900">
+          承認待ちの結果を修正します。再送信すると承認待ちの内容が上書きされます。
         </div>
       )}
 
@@ -421,8 +514,8 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
       </div>
 
       <p className="mt-4 px-2 text-xs leading-relaxed text-ink-500">
-        送信すると順位表・トーナメント表がすぐに更新され、他の方のスマートフォンにも反映されます。
-        間違えた場合は入力し直すか、主催者に修正を依頼してください。
+        勝者側が送信した結果は承認待ちになります。敗者側が承認すると順位表・決勝ラウンドへ反映されます。
+        間違えた場合は承認前に入力し直すか、主催者に修正を依頼してください。
       </p>
     </PageShell>
   );

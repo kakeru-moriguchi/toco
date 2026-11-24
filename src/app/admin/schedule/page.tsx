@@ -351,7 +351,7 @@ export default function AdminSchedulePage() {
                   <div className="flex flex-wrap items-center gap-2 text-xs font-bold text-court-700">
                     <span className="text-ink-500">{matchGroupName(m, state)}</span>
                     <span className="ml-auto">
-                      <StatusBadge status={m.status} />
+                      <StatusBadge status={m.status} approvalStatus={m.approval_status} />
                     </span>
                   </div>
                   <p className="text-sm font-bold">

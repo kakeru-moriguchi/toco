@@ -4,6 +4,7 @@ export type Phase = "setup" | "league" | "bracket" | "finished";
 export type SetScore = { a: number; b: number };
 export type Stage = "league" | "bracket";
 export type MatchStatus = "pending" | "in_progress" | "done";
+export type ApprovalStatus = "none" | "pending" | "approved";
 export type Slot = "a" | "b";
 
 /** 順位決定の基準。並び順を変えるだけで同率時のルールを差し替えられる。 */
@@ -195,6 +196,15 @@ export type Match = {
   loser_next_slot: Slot | null;
   reported_at: string | null;
   reported_by: string | null;
+  approval_status: ApprovalStatus;
+  pending_sets: SetScore[];
+  pending_score_a: number | null;
+  pending_score_b: number | null;
+  pending_winner_team_id: string | null;
+  submitted_by_team_id: string | null;
+  submitted_at: string | null;
+  approved_by_team_id: string | null;
+  approved_at: string | null;
 };
 
 /** 参加者画面が使う「大会の全状態」。1回の取得でどの画面も描ける。 */

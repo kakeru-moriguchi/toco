@@ -60,7 +60,7 @@ function MatchRow({
             <span className="chip bg-ball-500 text-court-950">次の試合</span>
           )}
           <span className="text-ink-500">{matchGroupName(match, state)}</span>
-          <StatusBadge status={match.status} />
+          <StatusBadge status={match.status} approvalStatus={match.approval_status} />
         </div>
 
         <div>

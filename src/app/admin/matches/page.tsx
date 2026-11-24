@@ -98,7 +98,7 @@ export default function AdminMatchesPage() {
                   {m.court && <span>コート{m.court}</span>}
                   <span className="text-ink-500">{matchGroupName(m, state)}</span>
                   <span className="ml-auto">
-                    <StatusBadge status={m.status} />
+                    <StatusBadge status={m.status} approvalStatus={m.approval_status} />
                   </span>
                 </div>
                 <ResultEditor

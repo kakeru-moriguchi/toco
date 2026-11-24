@@ -141,7 +141,7 @@ export default function BracketPage() {
                               コート{m.court}
                             </span>
                           )}
-                          <StatusBadge status={m.status} />
+                          <StatusBadge status={m.status} approvalStatus={m.approval_status} />
                         </div>
                         <p className="text-[15px] font-bold leading-snug">
                           {sideName(m, "a", state.teams)}

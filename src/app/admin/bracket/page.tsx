@@ -233,7 +233,7 @@ export default function AdminBracketPage() {
                         {m.scheduled_at && <span className="tabular-nums">{m.scheduled_at}</span>}
                         {m.court && <span>コート{m.court}</span>}
                         <span className="ml-auto">
-                          <StatusBadge status={m.status} />
+                          <StatusBadge status={m.status} approvalStatus={m.approval_status} />
                         </span>
                       </div>
                       <ResultEditor

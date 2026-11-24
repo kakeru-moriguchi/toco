@@ -23,7 +23,15 @@ function toTournament(row: Record<string, unknown>): Tournament {
 
 /** DBの試合行を、画面がそのまま使える形に整える */
 function toMatch(row: Record<string, unknown>): Match {
-  return { ...(row as unknown as Match), sets: normalizeSets(row.sets) };
+  return {
+    ...(row as unknown as Match),
+    sets: normalizeSets(row.sets),
+    approval_status:
+      row.approval_status === "pending" || row.approval_status === "approved"
+        ? row.approval_status
+        : "none",
+    pending_sets: normalizeSets(row.pending_sets),
+  };
 }
 
 function toDivision(row: Record<string, unknown>): Division {
@@ -614,6 +622,134 @@ export type ResultInput = {
 };
 
 /**
+ * 参加者が入力した結果を承認待ちとして保存する。
+ * 勝者は入力されたスコアから自動判定し、正式結果・順位・決勝進行にはまだ反映しない。
+ */
+export async function submitResultForApproval(input: Pick<ResultInput, "matchId" | "sets">): Promise<Match> {
+  const db = supabaseAdmin();
+  const { data: found, error: findError } = await db
+    .from("matches")
+    .select("*")
+    .eq("id", input.matchId)
+    .single();
+  if (findError || !found) throw new Error("試合が見つかりませんでした。");
+  const match = toMatch(found as Record<string, unknown>);
+  if (match.status === "done") {
+    throw new Error("この試合は承認済みです。修正は主催者に依頼してください。");
+  }
+  if (!match.team_a_id || !match.team_b_id) {
+    throw new Error("対戦チームがまだ決まっていません。");
+  }
+
+  const tournament = await getTournament(match.tournament_id);
+  const sets = normalizeSets(input.sets);
+  const check = validateSets(sets, tournament.sets_to_win);
+  if (!check.ok || !check.winner) throw new Error(check.error ?? "スコアを確認してください。");
+
+  const winner = check.winner === "a" ? match.team_a_id : match.team_b_id;
+  const now = new Date().toISOString();
+  const { data: updated, error } = await db
+    .from("matches")
+    .update({
+      approval_status: "pending",
+      pending_sets: sets,
+      pending_score_a: check.totalPoints.a,
+      pending_score_b: check.totalPoints.b,
+      pending_winner_team_id: winner,
+      submitted_by_team_id: winner,
+      submitted_at: now,
+      approved_by_team_id: null,
+      approved_at: null,
+      status: "pending",
+      updated_at: now,
+    })
+    .eq("id", match.id)
+    .eq("tournament_id", match.tournament_id)
+    .eq("division_id", match.division_id)
+    .select("*")
+    .single();
+  if (error) throw new Error(error.message);
+
+  await logMatchEvent({
+    tournamentId: match.tournament_id,
+    divisionId: match.division_id,
+    matchId: match.id,
+    action: "report_pending",
+    scoreA: check.totalPoints.a,
+    scoreB: check.totalPoints.b,
+    actor: `team:${winner}`,
+    payload: { sets, sets_won: check.setsWon, winner_team_id: winner },
+  });
+
+  return toMatch(updated as Record<string, unknown>);
+}
+
+/** 敗者側の承認を受けて、仮結果を正式結果へ反映する。 */
+export async function approvePendingResult(matchId: string): Promise<Match> {
+  const db = supabaseAdmin();
+  const { data: found, error: findError } = await db.from("matches").select("*").eq("id", matchId).single();
+  if (findError || !found) throw new Error("試合が見つかりませんでした。");
+  const match = toMatch(found as Record<string, unknown>);
+  if (match.approval_status !== "pending") throw new Error("承認待ちの結果がありません。");
+  if (!match.team_a_id || !match.team_b_id || !match.pending_winner_team_id) {
+    throw new Error("承認する結果のチーム情報が不足しています。");
+  }
+  if (![match.team_a_id, match.team_b_id].includes(match.pending_winner_team_id)) {
+    throw new Error("承認する勝者情報が正しくありません。");
+  }
+
+  const tournament = await getTournament(match.tournament_id);
+  const sets = normalizeSets(match.pending_sets);
+  const check = validateSets(sets, tournament.sets_to_win);
+  if (!check.ok || !check.winner) throw new Error(check.error ?? "承認するスコアが正しくありません。");
+  const winner = check.winner === "a" ? match.team_a_id : match.team_b_id;
+  if (winner !== match.pending_winner_team_id) throw new Error("承認する勝者とスコアが一致しません。");
+  const loser = winner === match.team_a_id ? match.team_b_id : match.team_a_id;
+  const now = new Date().toISOString();
+
+  const { data: updated, error } = await db
+    .from("matches")
+    .update({
+      sets,
+      score_a: check.totalPoints.a,
+      score_b: check.totalPoints.b,
+      winner_team_id: winner,
+      status: "done",
+      reported_at: now,
+      reported_by: "team-approved",
+      approval_status: "approved",
+      approved_by_team_id: loser,
+      approved_at: now,
+      pending_sets: [],
+      pending_score_a: null,
+      pending_score_b: null,
+      pending_winner_team_id: null,
+      submitted_by_team_id: null,
+      submitted_at: null,
+      updated_at: now,
+    })
+    .eq("id", match.id)
+    .eq("approval_status", "pending")
+    .select("*")
+    .single();
+  if (error) throw new Error(error.message);
+
+  await logMatchEvent({
+    tournamentId: match.tournament_id,
+    divisionId: match.division_id,
+    matchId: match.id,
+    action: "approve",
+    scoreA: check.totalPoints.a,
+    scoreB: check.totalPoints.b,
+    actor: `team:${loser}`,
+    payload: { sets, winner_team_id: winner, approved_by_team_id: loser },
+  });
+
+  if (match.stage === "bracket") await recomputeBracket(match.tournament_id, match.division_id);
+  return toMatch(updated as Record<string, unknown>);
+}
+
+/**
  * 試合結果を登録・修正する（参加者・主催者共通の入口）。
  * 勝敗は取ったセット数で決まり、順位表用の得点・失点には全セットの合計点を入れる。
  */
@@ -654,6 +790,15 @@ export async function saveResult(input: ResultInput): Promise<Match> {
       status: "done",
       reported_at: new Date().toISOString(),
       reported_by: input.actor,
+      approval_status: "approved",
+      pending_sets: [],
+      pending_score_a: null,
+      pending_score_b: null,
+      pending_winner_team_id: null,
+      submitted_by_team_id: null,
+      submitted_at: null,
+      approved_by_team_id: null,
+      approved_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     })
     .eq("id", match.id)
@@ -682,7 +827,7 @@ export async function saveResult(input: ResultInput): Promise<Match> {
     await recomputeBracket(match.tournament_id, match.division_id);
   }
 
-  return updated as Match;
+  return toMatch(updated as Record<string, unknown>);
 }
 
 /** 結果を取り消して「待機中」に戻す（主催者のみ） */
@@ -708,6 +853,15 @@ export async function clearResult(matchId: string, tournamentId?: string, divisi
       status: "pending",
       reported_at: null,
       reported_by: null,
+      approval_status: "none",
+      pending_sets: [],
+      pending_score_a: null,
+      pending_score_b: null,
+      pending_winner_team_id: null,
+      submitted_by_team_id: null,
+      submitted_at: null,
+      approved_by_team_id: null,
+      approved_at: null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", matchId)

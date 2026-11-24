@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import type { MatchStatus } from "@/lib/types";
+import type { ApprovalStatus, MatchStatus } from "@/lib/types";
 import { STATUS_LABELS } from "@/lib/types";
 
-export function StatusBadge({ status }: { status: MatchStatus }) {
+export function StatusBadge({ status, approvalStatus }: { status: MatchStatus; approvalStatus?: ApprovalStatus }) {
+  if (approvalStatus === "pending") {
+    return <span className="chip bg-amber-100 text-amber-900">承認待ち</span>;
+  }
   const style =
     status === "done"
       ? "bg-court-100 text-court-800"

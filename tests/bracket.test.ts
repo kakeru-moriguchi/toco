@@ -67,6 +67,15 @@ function bracketMatch(patch: Partial<Match> & Pick<Match, "id">): Match {
     loser_next_slot: null,
     reported_at: null,
     reported_by: null,
+    approval_status: "none",
+    pending_sets: [],
+    pending_score_a: null,
+    pending_score_b: null,
+    pending_winner_team_id: null,
+    submitted_by_team_id: null,
+    submitted_at: null,
+    approved_by_team_id: null,
+    approved_at: null,
     ...patch,
   };
 }
@@ -96,7 +105,23 @@ test("bracket recomputation advances winners and clears stale final results", ()
   const patches = resolveBracketProgress([semifinal, final]);
   assert.deepEqual(patches, [{
     id: "final",
-    patch: { team_a_id: "A", score_a: null, score_b: null, winner_team_id: null, status: "pending" },
+    patch: {
+      team_a_id: "A",
+      sets: [],
+      score_a: null,
+      score_b: null,
+      winner_team_id: null,
+      status: "pending",
+      approval_status: "none",
+      pending_sets: [],
+      pending_score_a: null,
+      pending_score_b: null,
+      pending_winner_team_id: null,
+      submitted_by_team_id: null,
+      submitted_at: null,
+      approved_by_team_id: null,
+      approved_at: null,
+    },
   }]);
 });
 
