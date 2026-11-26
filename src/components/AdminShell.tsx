@@ -65,9 +65,10 @@ export function AdminShell({
         const active = items.filter((item) => !item.archived_at);
         setTournaments(active);
         const selected = selectedTournamentId("admin");
-        if ((!selected || !active.some((item) => item.id === selected)) && active[0]) {
-          selectTournament(active[0].id, "admin");
-          setActiveTournamentId(active[0].id);
+        const next = active.find((item) => item.id === selected) ?? active[0];
+        if (next) {
+          if (selected !== next.id) selectTournament(next.id, "admin");
+          setActiveTournamentId(next.id);
         }
       })
       .catch(() => setTournaments([]));

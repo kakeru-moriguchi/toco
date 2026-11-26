@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { assignSchedule, findCourtConflict, normalizeScheduledAt, qualifyingPairs, roundRobin } from "../src/lib/schedule";
+import { assignSchedule, findCourtConflict, findDependencyConflict, normalizeScheduledAt, qualifyingPairs, roundRobin } from "../src/lib/schedule";
 
 test("round robin creates every pairing once without a same-round duplicate", () => {
   const pairs = roundRobin(5);
@@ -108,5 +108,22 @@ test('long reserved periods never use an unchecked fallback court', () => {
   assert.throws(() => assignSchedule([{ id: 'm', teamAId: 'a', teamBId: 'b' }], {
     startTime: '23:45', minutesPerMatch: 30, courts: ['1'],
   }), /当日中/);
+});
+
+test('an undecided final and third-place match wait for both semifinals', () => {
+  const result = assignSchedule([
+    {id:'semi1',teamAId:'a',teamBId:'b'}, {id:'semi2',teamAId:'c',teamBId:'d'},
+    {id:'final',teamAId:null,teamBId:null,dependsOnIds:['semi1','semi2']},
+    {id:'third',teamAId:null,teamBId:null,dependsOnIds:['semi1','semi2']},
+  ],{startTime:'13:30',minutesPerMatch:45,courts:['1','2','3','4']});
+  assert.equal(result[2].scheduledAt,'14:15');
+  assert.equal(result[3].scheduledAt,'14:15');
+});
+
+test('manual edits cannot start an undecided next round before its feeder ends', () => {
+  const prior = {id:'semi',division_id:'d',court:'1',scheduled_at:'13:30',duration_minutes:45,next_match_id:'final'};
+  const next = {id:'final',division_id:'d',court:'2',scheduled_at:'13:30',duration_minutes:45};
+  assert.ok(findDependencyConflict([prior,next],new Set(['final'])));
+  assert.equal(findDependencyConflict([prior,{...next,scheduled_at:'14:15'}],new Set(['final'])),null);
 });
 
