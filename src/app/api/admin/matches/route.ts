@@ -21,7 +21,7 @@ async function validateCourtSchedule(params: {
   if (error) throw new Error(error.message);
   const rows = (data ?? []).filter((row) => !row.consolation_void) as CourtSlot[];
   const tournament = await getTournament(params.tournamentId);
-  const courts = [...new Set([...rows.map((row) => row.court), params.newMatch?.court ?? ""].filter(Boolean))];
+  const courts = [...new Set([...rows.map((row) => row.court), ...[...params.updates.values()].map((patch) => typeof patch.court === 'string' ? patch.court : ''), params.newMatch?.court ?? ""].filter(Boolean))];
   for (const [blockIndex, block] of tournament.schedule_blocks.entries()) {
     const [startHour, startMinute] = block.start_time.split(":").map(Number);
     const [endHour, endMinute] = block.end_time.split(":").map(Number);
@@ -49,12 +49,13 @@ async function validateCourtSchedule(params: {
       .map(([id]) => id)
   );
   if (params.newMatch) watched.add(params.newMatch.id);
-  if (findDependencyConflict(rows,watched)) {
-    throw new Error('前の試合が終了する前に次の試合が始まります。決勝・準決勝・敗者戦の開始時刻を確認してください。');
+  const dependency = findDependencyConflict(rows,watched);
+  if (dependency) {
+    throw new Error(`${dependency.prior.scheduled_at}開始・${dependency.prior.court}コートの試合が終了する前に、${dependency.next.scheduled_at}開始・${dependency.next.court}コートの次の試合が始まります。開始時刻または試合時間を調整してください。`);
   }
   const conflict = findCourtConflict(rows, watched);
   if (conflict) {
-    throw new Error("指定した時間帯は、同じコート・同じチームの試合、または休憩・予約枠と重複しています。");
+    throw new Error(`${conflict.first.scheduled_at}開始・${conflict.first.court}コートと、${conflict.second.scheduled_at}開始・${conflict.second.court}コートが重複しています。同じコート・同じチームの試合、休憩・予約枠の時刻と試合時間を確認してください。`);
   }
 }
 

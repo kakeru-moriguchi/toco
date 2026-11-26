@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { rehearsalDb } from './helpers/rehearsalDb';
 import type { Match } from '../src/lib/types';
+import { verifyTocoTimetable } from './helpers/verifyTocoTimetable';
 
 test('PDF tournament rehearsal against local PostgreSQL: 35 teams, 70 qualifying matches, finals and consolation', { timeout: 180000 }, async (context) => {
   const local = await rehearsalDb();
@@ -138,5 +139,8 @@ test('PDF tournament rehearsal against local PostgreSQL: 35 teams, 70 qualifying
     assert.equal(findDependencyConflict(regenerated,new Set(regenerated.map((m)=>m.id))),null);
     const {rows: timing}=await local.db.query("select d.name,m.stage,count(*)::int as matches,min(m.scheduled_at) as first_start,max(to_char(('2000-01-01 '||m.scheduled_at)::timestamp + m.duration_minutes * interval '1 minute','HH24:MI')) as last_end from matches m join divisions d on d.id=m.division_id where m.tournament_id=$1 and m.scheduled_at<>'' and not m.consolation_void group by d.name,m.stage order by d.name,m.stage",[tournamentId]);
     context.diagnostic(JSON.stringify(timing));
+    await context.test('published court-sharing timetable: 70 qualifying slots, 24 confirmed finals slots and six unresolved durations',async()=>{
+      await verifyTocoTimetable(local,tournamentId,divisions);
+    });
   } finally { await local.close(); }
 });
