@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/supabase";
 import { clearResult, getDivision, getState, getTournament, logMatchEvent, saveResult } from "@/lib/data";
 import { divisionIdFromRequest, errorMessage, fail, ok, readSets, requireAdmin, tournamentIdFromRequest } from "@/lib/api";
-import { findCourtConflict, normalizeScheduledAt, type CourtSlot } from "@/lib/schedule";
+import { findCourtConflict, findDependencyConflict, normalizeScheduledAt, type CourtSlot } from "@/lib/schedule";
 import { divisionQualifyingMinutes } from "@/lib/divisionFormat";
 
 export const dynamic = "force-dynamic";
@@ -16,12 +16,12 @@ async function validateCourtSchedule(params: {
   const db = supabaseAdmin();
   const { data, error } = await db
     .from("matches")
-    .select("id, division_id, court, scheduled_at, duration_minutes, team_a_id, team_b_id")
+    .select("id, division_id, court, scheduled_at, duration_minutes, team_a_id, team_b_id, next_match_id, loser_next_match_id, consolation_void, stage, tier_key, round, is_consolation, is_third_place")
     .eq("tournament_id", params.tournamentId);
   if (error) throw new Error(error.message);
-  const rows = (data ?? []) as CourtSlot[];
+  const rows = (data ?? []).filter((row) => !row.consolation_void) as CourtSlot[];
   const tournament = await getTournament(params.tournamentId);
-  const courts = [...new Set([...rows.map((row) => row.court), params.newMatch?.court ?? ""].filter(Boolean))];
+  const courts = [...new Set([...rows.map((row) => row.court), ...[...params.updates.values()].map((patch) => typeof patch.court === 'string' ? patch.court : ''), params.newMatch?.court ?? ""].filter(Boolean))];
   for (const [blockIndex, block] of tournament.schedule_blocks.entries()) {
     const [startHour, startMinute] = block.start_time.split(":").map(Number);
     const [endHour, endMinute] = block.end_time.split(":").map(Number);
@@ -49,9 +49,13 @@ async function validateCourtSchedule(params: {
       .map(([id]) => id)
   );
   if (params.newMatch) watched.add(params.newMatch.id);
+  const dependency = findDependencyConflict(rows,watched);
+  if (dependency) {
+    throw new Error(`${dependency.prior.scheduled_at}開始・${dependency.prior.court}コートの試合が終了する前に、${dependency.next.scheduled_at}開始・${dependency.next.court}コートの次の試合が始まります。開始時刻または試合時間を調整してください。`);
+  }
   const conflict = findCourtConflict(rows, watched);
   if (conflict) {
-    throw new Error("指定した時間帯は、同じコート・同じチームの試合、または休憩・予約枠と重複しています。");
+    throw new Error(`${conflict.first.scheduled_at}開始・${conflict.first.court}コートと、${conflict.second.scheduled_at}開始・${conflict.second.court}コートが重複しています。同じコート・同じチームの試合、休憩・予約枠の時刻と試合時間を確認してください。`);
   }
 }
 
@@ -335,6 +339,10 @@ export async function POST(req: NextRequest) {
       if (target < 0 || target >= ordered.length) return fail("これ以上動かせません。");
       const a = ordered[index];
       const b = ordered[target];
+      await validateCourtSchedule({ tournamentId: tournament.id, divisionId: division.id, updates: new Map([
+        [a.id,{ match_no: b.match_no, scheduled_at: b.scheduled_at, court: b.court, duration_minutes: b.duration_minutes }],
+        [b.id,{ match_no: a.match_no, scheduled_at: a.scheduled_at, court: a.court, duration_minutes: a.duration_minutes }],
+      ]) });
       // 試合番号・時間・コートをまとめて入れ替える
       await db
         .from("matches")

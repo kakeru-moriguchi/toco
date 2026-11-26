@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "./supabase";
-import { assignSchedule, formatTime, parseTime, qualifyingPairs, roundRobin } from "./schedule";
+import { assignSchedule, formatTime, parseTime, qualifyingPairs, roundRobin, schedulePredecessors } from "./schedule";
 import { consolationCandidates, planConsolationPairs } from './consolation';
 import { planBracketsFromLeagues, resolveBracketProgress, type PlannedTier } from "./bracket";
 import { normalizeTiers } from "./tiers";
@@ -254,10 +254,35 @@ export async function ensureLeagues(tournamentId: string, divisionId: string, co
   return getQualifyingLeagues(tournamentId, divisionId);
 }
 
-/**
- * リーグ戦の対戦カードを作り直す。
- * 既存のリーグ戦結果は消えるので、管理画面では確認ダイアログを出している。
- */
+/** 選択部門の組み合わせだけを未作成へ戻す。チーム・PIN・予選リーグ分けは保持。 */
+export async function resetDivisionCombinations(tournamentId: string, divisionId: string, phase: 'qualifying' | 'finals') {
+  await getDivision(tournamentId,divisionId);
+  const db = supabaseAdmin();
+  const [matchResult,leagueResult] = await Promise.all([
+    db.from('matches').select('id,stage,tier_key,league_id').eq('tournament_id',tournamentId).eq('division_id',divisionId),
+    db.from('leagues').select('id').eq('tournament_id',tournamentId).eq('division_id',divisionId).not('tier_key','is',null),
+  ]);
+  if (matchResult.error) throw new Error(matchResult.error.message);
+  if (leagueResult.error) throw new Error(leagueResult.error.message);
+  const tierLeagueIds = (leagueResult.data ?? []).map((league)=>league.id as string);
+  const isFinal = (match: {stage: string; tier_key: string | null; league_id: string | null}) => match.stage === 'bracket' || match.tier_key !== null || (match.league_id !== null && tierLeagueIds.includes(match.league_id));
+  const matches = matchResult.data ?? [];
+  if (phase === 'qualifying' && (tierLeagueIds.length > 0 || matches.some(isFinal))) {
+    throw new Error('決勝ラウンドが残っています。先に「決勝ラウンドの組み合わせをリセット」を実行してから、予選リーグをリセットしてください。');
+  }
+  const ids = matches.filter((match)=>phase === 'finals' ? isFinal(match) : !isFinal(match)).map((match)=>match.id as string);
+  if (ids.length > 0) {
+    const {error} = await db.from('matches').delete().eq('tournament_id',tournamentId).eq('division_id',divisionId).in('id',ids);
+    if (error) throw new Error(error.message);
+  }
+  if (phase === 'finals' && tierLeagueIds.length > 0) {
+    const {error} = await db.from('leagues').delete().eq('tournament_id',tournamentId).eq('division_id',divisionId).in('id',tierLeagueIds);
+    if (error) throw new Error(error.message);
+  }
+  // 大会全体のphaseは他部門とも共通なので、部門リセットでは変更しない。
+}
+
+/** リーグ戦の対戦カードを作り直す。既存結果の削除は管理画面で確認する。 */
 export async function regenerateLeagueMatches(tournamentId: string, divisionId: string) {
   const db = supabaseAdmin();
   const tournament = await getTournament(tournamentId);
@@ -361,6 +386,8 @@ export async function autoAssignSchedule(
   const division = await getDivision(tournamentId, divisionId);
   const tierOrder = new Map(divisionTiers(division, tournament).map((t, i) => [t.key, i]));
   const ordered = [...matches].sort((a, b) => {
+    // 単発敗者戦は初戦対象が確定してから配置する（DB上のroundは1）。
+    if (Boolean(a.is_consolation) !== Boolean(b.is_consolation)) return a.is_consolation ? 1 : -1;
     const ra = a.round ?? 0;
     const rb = b.round ?? 0;
     if (ra !== rb) return ra - rb;
@@ -378,7 +405,10 @@ export async function autoAssignSchedule(
       : 0;
 
   const assignments = assignSchedule(
-    ordered.map((m) => ({ id: m.id, teamAId: m.team_a_id, teamBId: m.team_b_id })),
+    ordered.map((m) => ({
+      id: m.id, teamAId: m.team_a_id, teamBId: m.team_b_id,
+      dependsOnIds: schedulePredecessors(ordered,m),
+    })),
     {
       ...options,
       reserved: tournamentMatches
@@ -656,14 +686,22 @@ export async function syncConsolation(tournamentId: string, divisionId: string, 
     if (manual && (!candidates.ready || manual.teamAId === manual.teamBId || !pairs[0].every((id) => candidates.available.includes(id)))) {
       throw new Error('対象確定後、未割り当ての初戦敗退チームから異なる2組を選んでください。');
     }
-    const latest = existing.reduce((time, m) => m.scheduled_at ? Math.max(time, parseTime(m.scheduled_at)+(m.duration_minutes ?? minutes)) : time, parseTime(divisionFinalsStartTime(state.division, state.tournament)));
-    if (latest+minutes*pairs.length > 1440) throw new Error('当日中にコンソレーションを配置できません。進行表を調整してください。');
     const courts = divisionCourts(state.division, state.tournament);
-    const assignments = assignSchedule(pairs.map(([teamAId, teamBId], i) => ({ id: String(i), teamAId, teamBId })), {
-      startTime: formatTime(latest), minutesPerMatch: minutes, courts,
-      reserved: state.tournament.schedule_blocks.flatMap((block) => courts.map((court) => ({ court, scheduledAt: block.start_time, durationMinutes: parseTime(block.end_time)-parseTime(block.start_time) }))),
-    });
-    const rows = pairs.map(([team_a_id,team_b_id], i) => ({ team_a_id,team_b_id,court: assignments[i].court,scheduled_at: assignments[i].scheduledAt,duration_minutes: minutes }));
+    // 対象確定には全員の初戦終了が必要だが、他の級の決勝終了を待つ必要はない。
+    const main = state.matches.filter((m) => m.stage === 'bracket' && m.tier_key === tier.key && !m.is_consolation && !m.is_third_place);
+    const entrants = [...new Set(main.flatMap((m) => [m.team_a_id,m.team_b_id]).filter(Boolean))];
+    const firstMatches = entrants.map((teamId) => main.filter((m) => m.team_a_id === teamId || m.team_b_id === teamId).sort((a,b) => (a.round ?? 0)-(b.round ?? 0))[0]);
+    if (firstMatches.some((m) => !m?.scheduled_at)) throw new Error('本戦の初戦に時刻がありません。先に進行表を設定してください。');
+    const earliest = firstMatches.reduce((time,m) => Math.max(time,parseTime(m.scheduled_at)+(m.duration_minutes ?? minutes)),parseTime(divisionFinalsStartTime(state.division,state.tournament)));
+    const rows = [];
+    for (const [team_a_id,team_b_id] of pairs) {
+      const [assignment] = assignSchedule([{ id: 'consolation',teamAId:team_a_id,teamBId:team_b_id }], {
+        startTime: formatTime(earliest),minutesPerMatch:minutes,courts,
+        reserved: [...existing,...rows].filter((m) => m.scheduled_at).map((m) => ({ court:m.court,scheduledAt:m.scheduled_at,durationMinutes:m.duration_minutes,teamAId:m.team_a_id,teamBId:m.team_b_id }))
+          .concat(state.tournament.schedule_blocks.flatMap((block) => courts.map((court) => ({ court,scheduledAt:block.start_time,durationMinutes:parseTime(block.end_time)-parseTime(block.start_time),teamAId:null,teamBId:null })))),
+      });
+      rows.push({ team_a_id,team_b_id,court:assignment.court,scheduled_at:assignment.scheduledAt,duration_minutes:minutes });
+    }
     const { error: insertError } = await db.rpc('create_consolation_matches', { p_tournament_id: tournamentId, p_division_id: divisionId, p_tier_key: tier.key, p_rows: rows });
     if (insertError) throw new Error(insertError.message);
     rows.forEach((row) => existing.push({ ...row } as Match));

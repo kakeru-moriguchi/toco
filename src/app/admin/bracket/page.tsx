@@ -186,17 +186,19 @@ export default function AdminBracketPage() {
                 </button>
               )}
             </div>}
-            {bracketCount > 0 && (
+            {(state.division.finals_enabled || bracketCount > 0) && (
               <button
-                className="btn-danger btn-sm"
+                className="btn-danger w-full sm:w-auto"
                 disabled={busy}
                 onClick={() => {
-                  if (confirm("すべての級の決勝ラウンドを削除します。よろしいですか？")) {
-                    call({ action: "reset_bracket" }, "削除しました");
+                  if (confirm(`「${state.division.name}」の決勝ラウンド${bracketCount}試合の組み合わせを作成前に戻します。全級の決勝・決勝の総当たり・コンソレーションの対戦カード、試合結果、承認待ちの入力、進行表と試合履歴は削除され、元に戻せません。予選結果・チーム登録・PIN・リーグ分け・大会設定は残ります。続けますか？`)) {
+                    setSwapSlot(null);
+                    setConsolationSlots({});
+                    void call({ action: "reset_bracket", confirm: state.division.id }, "決勝ラウンドの組み合わせを作成前に戻しました");
                   }
                 }}
               >
-                決勝ラウンドを削除する
+                決勝ラウンドの組み合わせをリセット
               </button>
             )}
           </section>

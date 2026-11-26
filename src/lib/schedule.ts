@@ -50,6 +50,7 @@ export type SchedulableMatch = {
   id: string;
   teamAId: string | null;
   teamBId: string | null;
+  dependsOnIds?: string[];
 };
 
 export type ScheduleOptions = {
@@ -79,7 +80,42 @@ export type CourtSlot = {
   duration_minutes?: number | null;
   team_a_id?: string | null;
   team_b_id?: string | null;
+  next_match_id?: string | null;
+  loser_next_match_id?: string | null;
+  stage?: string;
+  tier_key?: string | null;
+  round?: number | null;
+  is_consolation?: boolean;
+  is_third_place?: boolean;
 };
+
+/** 勝者・敗者の進出先と、単発敗者戦の対象確定に必要な初戦。 */
+export function schedulePredecessors(rows: CourtSlot[], match: CourtSlot): string[] {
+  const ids = rows.filter((row) => row.next_match_id === match.id || row.loser_next_match_id === match.id).map((row) => row.id);
+  if (match.is_consolation) {
+    const main = rows.filter((row) => row.division_id === match.division_id && row.tier_key === match.tier_key && row.stage === 'bracket' && !row.is_consolation && !row.is_third_place)
+      .sort((a,b) => (a.round ?? 0)-(b.round ?? 0));
+    const teams = new Set(main.flatMap((row) => [row.team_a_id,row.team_b_id]).filter(Boolean));
+    for (const team of teams) {
+      const first = main.find((row) => row.team_a_id === team || row.team_b_id === team);
+      if (first) ids.push(first.id);
+    }
+  }
+  return [...new Set(ids)];
+}
+
+export function findDependencyConflict(rows: CourtSlot[], watchedIds: Set<string>) {
+  const byId = new Map(rows.map((row) => [row.id,row]));
+  for (const next of rows) {
+    if (!next.scheduled_at) continue;
+    for (const priorId of schedulePredecessors(rows,next)) {
+      const prior = byId.get(priorId);
+      if (!prior?.scheduled_at || (!watchedIds.has(prior.id) && !watchedIds.has(next.id))) continue;
+      if (parseTime(next.scheduled_at) < parseTime(prior.scheduled_at)+Math.max(1,prior.duration_minutes ?? 1)) return {prior,next};
+    }
+  }
+  return null;
+}
 
 /** 9:00 と 09:00 を同じ枠として扱う。 */
 export function normalizeScheduledAt(value: string): string {
@@ -141,7 +177,12 @@ export function assignSchedule(
   const result: ScheduleAssignment[] = [];
 
   matches.forEach((m, i) => {
-    let slot = 0;
+    const dependencyEnd = (m.dependsOnIds ?? []).reduce((end, id) => {
+      const prior = result.find((assignment) => assignment.id === id);
+      if (!prior) throw new Error('前の試合が未配置です。ラウンド順を確認してください。');
+      return Math.max(end, parseTime(prior.scheduledAt)+prior.durationMinutes);
+    }, start);
+    let slot = Math.max(0, Math.ceil((dependencyEnd-start)/step));
     for (;;) {
       const teams = busy.get(slot) ?? new Set<string>();
       const occupied = usedCourts.get(slot) ?? new Set<string>();
