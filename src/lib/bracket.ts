@@ -360,7 +360,7 @@ export type BracketPatch = {
 };
 
 export function resolveBracketProgress(matches: Match[]): BracketPatch[] {
-  const bracket = matches.filter((m) => m.stage === "bracket");
+  const bracket = matches.filter((m) => m.stage === "bracket" && !m.is_consolation);
   if (bracket.length === 0) return [];
 
   const working = new Map(bracket.map((m) => [m.id, { ...m }]));

@@ -8,6 +8,22 @@ import { hashTeamPin, validateTeamPin } from "@/lib/teamResultAuth";
 
 export const dynamic = "force-dynamic";
 
+/** PIN自体やハッシュを返さず、管理者へ設定済み状態だけを返す。 */
+export async function GET(req: NextRequest) {
+  if (!(await requireAdmin(req))) return fail('認証が必要です。', 401);
+  try {
+    const tournament = await getTournament(tournamentIdFromRequest(req));
+    const division = await getDivision(tournament.id, divisionIdFromRequest(req));
+    const db = supabaseAdmin();
+    const { data: teams, error } = await db.from('teams').select('id').eq('tournament_id', tournament.id).eq('division_id', division.id);
+    if (error) throw new Error(error.message);
+    if (!teams?.length) return ok({ configured_team_ids: [] });
+    const { data: credentials, error: credentialError } = await db.from('team_result_credentials').select('team_id').in('team_id', teams.map((team) => team.id));
+    if (credentialError) throw new Error(credentialError.message);
+    return ok({ configured_team_ids: (credentials ?? []).map((item) => item.team_id) });
+  } catch (e) { return fail(errorMessage(e), 500); }
+}
+
 /**
  * チームの登録・編集・削除・リーグ分け
  * action:

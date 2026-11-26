@@ -13,6 +13,7 @@ import { tierRangeLabel } from "@/lib/tiers";
 import { matchGroupName, qualifyingLeagues, sideName, tierLeagueTeams } from "@/lib/view";
 import { TIER_FORMAT_LABELS } from "@/lib/types";
 import { divisionGameLabels, divisionTiers } from "@/lib/divisionFormat";
+import { consolationCandidates } from '@/lib/consolation';
 
 export default function AdminBracketPage() {
   const { state, loading, refresh } = useTournamentState("admin");
@@ -20,6 +21,7 @@ export default function AdminBracketPage() {
   const [startTime, setStartTime] = useState("");
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "error" } | null>(null);
   const [swapSlot, setSwapSlot] = useState<{ id: string; slot: "a" | "b" } | null>(null);
+  const [consolationSlots, setConsolationSlots] = useState<Record<string, { a?: string; b?: string }>>({});
 
   const notify = (msg: string, tone: "ok" | "error" = "ok") => {
     setToast({ msg, tone });
@@ -201,6 +203,24 @@ export default function AdminBracketPage() {
 
           {tierGroups.map(({ tier, matches, rows }) => (
             <section key={tier.key} className="space-y-2">
+              {state.division.consolation_enabled && tier.format === 'bracket' && (() => {
+                const candidates = consolationCandidates(state.matches, tier.key);
+                const slots = consolationSlots[tier.key] ?? {};
+                return <div className="card space-y-3 p-3">
+                  <h3 className="text-sm font-black text-court-800">{tier.name} コンソレーション</h3>
+                  <p className="text-xs text-ink-600">{!candidates.ready ? '全チームの最初の実試合が承認されると対象が確定します。' : candidates.needsManualPairing ? `初戦敗退者${candidates.eligible.length}組。奇数のため、主催者が対戦方法を決めてください。未割当のチームを含め、各チーム1試合を上限とします。` : '初戦敗退者を各1試合に自動編成します。'}</p>
+                  {candidates.ready && candidates.needsManualPairing && <>
+                    <div className="grid gap-2 sm:grid-cols-2">{(['a','b'] as const).map((slot) => <select key={slot} className="field" aria-label={`${tier.name}コンソレーション${slot === 'a' ? 'チームA' : 'チームB'}`} value={slots[slot] ?? ''} onChange={(e) => setConsolationSlots((current) => ({ ...current, [tier.key]: { ...slots, [slot]: e.target.value } }))}>
+                      <option value="">未割当の対象チームを選択</option>
+                      {candidates.available.map((id) => <option key={id} value={id}>{state.teams.find((t) => t.id === id)?.name ?? id}</option>)}
+                    </select>)}</div>
+                    <button className="btn-primary btn-sm" disabled={busy || !slots.a || !slots.b || slots.a === slots.b} onClick={() => { if (confirm('この2チームの単発コンソレーションを作成しますか？')) void call({ action: 'pair_consolation', tier_key: tier.key, team_a_id: slots.a, team_b_id: slots.b }, 'コンソレーションを作成しました'); }}>この対戦を設定</button>
+                    {candidates.available.length === 1 && <p className="text-sm font-bold text-amber-800">残り1チームの扱いは主催者が決定してください。自動でBYEや2試合目を設定することはありません。</p>}
+                  </>}
+                  {candidates.ready && !candidates.needsManualPairing && candidates.available.length > 0 && <button className="btn-ghost btn-sm" disabled={busy} onClick={() => void call({ action: 'sync_consolation' }, 'コンソレーションを更新しました')}>対象を反映する</button>}
+                  {matches.some((m) => m.is_consolation) && <button className="btn-danger btn-sm" disabled={busy} onClick={() => { if (confirm('この級のコンソレーションを全て取り消します。確定結果を含む記録は履歴に残りますが、公開画面と進行表から外れます。続けますか？')) void call({ action: 'cancel_consolation', tier_key: tier.key, confirm: true }, 'コンソレーションを取り消しました'); }}>この級のコンソレーションを取り消す</button>}
+                </div>;
+              })()}
               <div className="card p-3">
                 <h2 className="mb-2 flex flex-wrap items-center gap-2 px-1 text-sm font-black text-court-800">
                   <span className="chip bg-court-800 text-white">{tier.name}</span>

@@ -52,7 +52,7 @@ export default function BracketPage() {
   const champion = useMemo(() => {
     if (!state || !current || current.format !== "bracket") return undefined;
     const final = state.matches
-      .filter((m) => m.stage === "bracket" && m.tier_key === current.key && !m.is_third_place)
+      .filter((m) => m.stage === "bracket" && m.tier_key === current.key && !m.is_third_place && !m.is_consolation)
       .sort((a, b) => (b.round ?? 0) - (a.round ?? 0))[0];
     if (!final || final.status !== "done") return undefined;
     return teamById(state.teams, final.winner_team_id);
@@ -116,7 +116,16 @@ export default function BracketPage() {
           )}
 
           {/* トーナメント形式 */}
-          {current.format === "bracket" && <BracketView state={state} tierKey={current.key} />}
+          {current.format === "bracket" && <>
+            <BracketView state={state} tierKey={current.key} />
+            {state.matches.filter((m) => m.is_consolation && m.tier_key === current.key).map((m) => <section key={m.id} className="card mt-3 space-y-2 p-4">
+              <h3 className="text-sm font-black text-court-800">コンソレーション（単発）</h3>
+              <p className="font-bold">{sideName(m, 'a', state.teams)} vs {sideName(m, 'b', state.teams)}</p>
+              <StatusBadge status={m.status} approvalStatus={m.approval_status} />
+              <p className="text-xs text-ink-600">{m.scheduled_at} / コート{m.court}</p>
+              {m.status === 'done' ? <p className="font-black">{scoreText(m,state)}</p> : <Link className="btn-accent btn-sm" href={`/report/${m.id}`}>結果入力・承認</Link>}
+            </section>)}
+          </>}
 
           {/* 総当たり形式：順位表＋試合一覧 */}
           {current.format === "league" && (

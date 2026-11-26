@@ -30,6 +30,7 @@ export function DivisionFormatEditor({
   const [leagueCount, setLeagueCount] = useState(1);
   const [courts, setCourts] = useState("");
   const [finalsEnabled, setFinalsEnabled] = useState(true);
+  const [consolationEnabled, setConsolationEnabled] = useState(false);
   const [matchOrder, setMatchOrder] = useState<"balanced" | "toco_5_team">("balanced");
   const [gameLabels, setGameLabels] = useState("");
   const [tiers, setTiers] = useState<BracketTier[]>([]);
@@ -38,6 +39,7 @@ export function DivisionFormatEditor({
     setLeagueCount(divisionLeagueCount(division, tournament));
     setCourts(divisionCourts(division, tournament).join(", "));
     setFinalsEnabled(division.finals_enabled);
+    setConsolationEnabled(division.consolation_enabled === true);
     setMatchOrder(division.qualifying_match_order);
     setGameLabels(divisionGameLabels(division).join(", "));
     setTiers(divisionTiers(division, tournament));
@@ -99,6 +101,11 @@ export function DivisionFormatEditor({
 
           {finalsEnabled && (
             <div className="space-y-2">
+              <label className="flex items-center gap-2 text-sm font-bold text-court-800">
+                <input type="checkbox" checked={consolationEnabled} onChange={(e) => setConsolationEnabled(e.target.checked)} />
+                初戦敗退チームのコンソレーションを行う
+              </label>
+              <p className="text-xs text-ink-500">各チーム1試合。対象が奇数なら管理者が対戦方法を決定します。</p>
               <p className="text-xs font-black text-court-800">決勝ラウンドの区分</p>
               {tiers.map((tier, index) => (
                 <div key={tier.key} className="min-w-0 space-y-2 overflow-hidden rounded-xl bg-white p-3">
@@ -147,6 +154,7 @@ export function DivisionFormatEditor({
                 league_count: leagueCount,
                 courts: courts.split(/[,、\s]+/).map((value) => value.trim()).filter(Boolean),
                 finals_enabled: finalsEnabled,
+                consolation_enabled: finalsEnabled && consolationEnabled,
                 qualifying_match_order: matchOrder,
                 game_labels: gameLabels.split(/[,、\n]+/).map((value) => value.trim()).filter(Boolean),
                 bracket_tiers: tiers,

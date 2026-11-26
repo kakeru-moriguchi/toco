@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AdminShell, Toast } from "@/components/AdminShell";
 import { useTournamentState } from "@/lib/useTournamentState";
-import { adminPost } from "@/lib/adminApi";
+import { adminGet, adminPost } from "@/lib/adminApi";
 import { LoadingBlock } from "@/components/ui";
 import type { Team } from "@/lib/types";
 
@@ -17,6 +17,16 @@ export default function AdminTeamsPage() {
   const [editing, setEditing] = useState<Record<string, Partial<Team>>>({});
   const [leagueNames, setLeagueNames] = useState<Record<string, string>>({});
   const [pins, setPins] = useState<Record<string, string>>({});
+  const [configuredPinIds, setConfiguredPinIds] = useState<string[] | null>(null);
+  const [pinStatusVersion, setPinStatusVersion] = useState(0);
+  useEffect(() => {
+    let current = true;
+    setConfiguredPinIds(null);
+    if (state) void adminGet('/api/admin/teams').then((json) => {
+      if (current) setConfiguredPinIds(json.configured_team_ids as string[]);
+    }).catch(() => { if (current) setConfiguredPinIds(null); });
+    return () => { current = false; };
+  }, [state?.tournament.id, state?.division.id, pinStatusVersion]);
 
   const notify = (msg: string, tone: "ok" | "error" = "ok") => {
     setToast({ msg, tone });
@@ -49,6 +59,11 @@ export default function AdminTeamsPage() {
 
       {state && (
         <div className="space-y-4">
+          <section className="card space-y-2 p-4">
+            <h2 className="text-sm font-black text-court-800">結果入力PINの準備</h2>
+            <p className="text-sm">{configuredPinIds === null ? 'PIN設定状況を取得中です。' : `${state.teams.length}チーム中 ${state.teams.filter((team) => configuredPinIds.includes(team.id)).length}チーム設定済み`}</p>
+            <p className="text-xs text-ink-600">各チームに異なる6〜12桁のPINを設定し、そのチームの代表者だけへ伝えてください。PINは再表示できません。設定済みPINを変えるときは代表者へ再連絡してください。</p>
+          </section>
           <section className="card space-y-3 p-4">
             <h2 className="text-sm font-black text-court-800">まとめて登録</h2>
             <p className="text-xs text-ink-500">
@@ -202,6 +217,7 @@ export default function AdminTeamsPage() {
                           />
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
+                          <span className="chip bg-court-100 text-court-800">{configuredPinIds === null ? '確認中' : configuredPinIds.includes(team.id) ? 'PIN設定済み' : 'PIN未設定'}</span>
                           <input
                             className="field w-36"
                             inputMode="numeric"
@@ -217,6 +233,7 @@ export default function AdminTeamsPage() {
                             onClick={async () => {
                               if (await call({ action: "set_result_pin", id: team.id, pin: pins[team.id] }, "結果入力PINを設定しました")) {
                                 setPins((current) => ({ ...current, [team.id]: "" }));
+                                setPinStatusVersion((current) => current+1);
                               }
                             }}
                           >

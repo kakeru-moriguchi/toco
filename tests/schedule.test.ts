@@ -100,3 +100,13 @@ test("court conflict detection treats 9:00 and 09:00 as the same tournament slot
   assert.equal(conflict?.second.id, "b");
 });
 
+test('long reserved periods never use an unchecked fallback court', () => {
+  const [assignment] = assignSchedule([{ id: 'm', teamAId: 'a', teamBId: 'b' }], {
+    startTime: '09:00', minutesPerMatch: 30, courts: ['1'], reserved: [{ court: '1', scheduledAt: '09:00', durationMinutes: 480 }],
+  });
+  assert.equal(assignment.scheduledAt, '17:00');
+  assert.throws(() => assignSchedule([{ id: 'm', teamAId: 'a', teamBId: 'b' }], {
+    startTime: '23:45', minutesPerMatch: 30, courts: ['1'],
+  }), /当日中/);
+});
+

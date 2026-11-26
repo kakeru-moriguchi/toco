@@ -154,6 +154,7 @@ export type Division = {
   bracket_tiers: BracketTier[] | null;
   /** 50歳以上など、予選総当たりだけで完結する部門では false */
   finals_enabled: boolean;
+  consolation_enabled?: boolean;
   qualifying_match_order: "balanced" | "toco_5_team";
   /** 3ゲーム制の表示名。例: 女子ダブルス / 男子ダブルス / ミックスダブルス */
   game_labels: string[] | null;
@@ -192,6 +193,8 @@ export type Match = {
   round: number | null;
   bracket_index: number | null;
   is_third_place: boolean;
+  is_consolation?: boolean;
+  consolation_void?: boolean;
   match_no: number;
   court: string;
   scheduled_at: string;

@@ -140,35 +140,22 @@ export function assignSchedule(
   const usedCourts: Map<number, Set<string>> = new Map();
   const result: ScheduleAssignment[] = [];
 
-  for (const reservation of options.reserved ?? []) {
-    const reservationStart = parseTime(reservation.scheduledAt);
-    const reservationEnd = reservationStart + Math.max(1, reservation.durationMinutes ?? step);
-    for (let slot = 0; slot <= matches.length + courts.length + 5; slot++) {
-      const candidateStart = start + slot * step;
-      const candidateEnd = candidateStart + step;
-      if (candidateStart < reservationEnd && reservationStart < candidateEnd) {
-        if (courts.includes(reservation.court)) {
-          const used = usedCourts.get(slot) ?? new Set<string>();
-          used.add(reservation.court);
-          usedCourts.set(slot, used);
-        }
-        const teams = busy.get(slot) ?? new Set<string>();
-        if (reservation.teamAId) teams.add(reservation.teamAId);
-        if (reservation.teamBId) teams.add(reservation.teamBId);
-        busy.set(slot, teams);
-      }
-    }
-  }
-
   matches.forEach((m, i) => {
     let slot = 0;
     for (;;) {
       const teams = busy.get(slot) ?? new Set<string>();
       const occupied = usedCourts.get(slot) ?? new Set<string>();
-      const court = courts.find((candidate) => !occupied.has(candidate));
+      const candidateStart = start + slot * step;
+      if (candidateStart + step > 1440) throw new Error('当日中に試合を配置できません。使用コート・開始時刻・試合時間を調整してください。');
+      const reservations = (options.reserved ?? []).filter((reservation) => {
+        const reservedStart = parseTime(reservation.scheduledAt);
+        return candidateStart < reservedStart + Math.max(1, reservation.durationMinutes ?? step) && reservedStart < candidateStart + step;
+      });
+      const court = courts.find((candidate) => !occupied.has(candidate) && !reservations.some((reservation) => reservation.court === candidate));
       const conflict =
         (m.teamAId !== null && teams.has(m.teamAId)) ||
-        (m.teamBId !== null && teams.has(m.teamBId));
+        (m.teamBId !== null && teams.has(m.teamBId)) ||
+        reservations.some((reservation) => [m.teamAId,m.teamBId].filter(Boolean).some((id) => id === reservation.teamAId || id === reservation.teamBId));
       if (court && !conflict) {
         if (m.teamAId) teams.add(m.teamAId);
         if (m.teamBId) teams.add(m.teamBId);
@@ -185,17 +172,6 @@ export function assignSchedule(
         break;
       }
       slot++;
-      if (slot > matches.length + courts.length + 5) {
-        // 念のための無限ループ防止
-        result.push({
-          id: m.id,
-          matchNo: i + 1,
-          court: courts[0],
-          scheduledAt: formatTime(start + slot * step),
-          durationMinutes: step,
-        });
-        break;
-      }
     }
   });
 

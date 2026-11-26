@@ -34,7 +34,7 @@ export function isReady(match: Match): boolean {
  */
 export function maxBracketRound(matches: Match[], tierKey?: string | null): number {
   const rounds = matches
-    .filter((m) => m.stage === "bracket" && (tierKey === undefined || m.tier_key === tierKey))
+    .filter((m) => m.stage === "bracket" && !m.is_consolation && (tierKey === undefined || m.tier_key === tierKey))
     .map((m) => m.round ?? 0);
   return rounds.length > 0 ? Math.max(...rounds) : 0;
 }
@@ -73,6 +73,7 @@ export function tierLeagueTeams(state: TournamentState, tierKey: string): Team[]
 
 /** 「①リーグ」「Aトーナメント 準決勝」など、その試合の所属を表す短い名前 */
 export function matchGroupName(match: Match, state: TournamentState): string {
+  if (match.is_consolation) return `${tierName(match, state)} コンソレーション`;
   if (match.stage === "league") {
     // 総当たり形式の級（例: Cリーグ）は、級の名前をそのまま出す
     if (match.tier_key) return tierName(match, state) || "順位別リーグ";

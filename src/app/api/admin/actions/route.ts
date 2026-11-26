@@ -9,6 +9,8 @@ import {
   getState,
   getTournament,
   regenerateLeagueMatches,
+  syncConsolation,
+  logMatchEvent,
 } from "@/lib/data";
 import { divisionIdFromRequest, errorMessage, fail, ok, requireAdmin, tournamentIdFromRequest } from "@/lib/api";
 import { divisionCourts, divisionFinalsMinutes, divisionFinalsStartTime, divisionLeagueCount, divisionQualifyingMinutes, divisionStartTime } from "@/lib/divisionFormat";
@@ -32,7 +34,18 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const action = String(body?.action ?? "");
 
-    if (action === "generate_league") {
+    if (action === 'cancel_consolation') {
+      const tierKey = String(body.tier_key ?? '');
+      if (body.confirm !== true || !tierKey) return fail('取り消すコンソレーションを確認してください。');
+      const { data: cancelled, error } = await db.from('matches').update({ consolation_void: true, updated_at: new Date().toISOString() })
+        .eq('tournament_id', tournament.id).eq('division_id', division.id).eq('tier_key', tierKey).eq('is_consolation', true).eq('consolation_void', false).select('id');
+      if (error) throw new Error(error.message);
+      for (const match of cancelled ?? []) await logMatchEvent({ tournamentId: tournament.id, divisionId: division.id, matchId: match.id, action: 'cancel_consolation', actor: 'admin' });
+    } else if (action === 'sync_consolation' || action === 'pair_consolation') {
+      await syncConsolation(tournament.id, division.id, action === 'pair_consolation' ? {
+        tierKey: String(body.tier_key ?? ''), teamAId: String(body.team_a_id ?? ''), teamBId: String(body.team_b_id ?? ''),
+      } : undefined);
+    } else if (action === "generate_league") {
       const leagueCount = divisionLeagueCount(division, tournament);
       const recreatedLeagues = await ensureLeagues(tournament.id, division.id, leagueCount);
       if (recreatedLeagues.length !== leagueCount) {
