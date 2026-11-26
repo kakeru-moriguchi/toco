@@ -355,6 +355,8 @@
 > | `migration_006_division_formats.sql` | 部門別リーグ数・コート・決勝方式とPDF大会形式に対応 |
 > | `migration_007_service_role_privileges.sql` | 管理API用のDB権限を設定 |
 > | `migration_008_result_approval.sql` | 勝者入力・敗者承認の結果確定フローに対応 |
+> | `migration_009_division_settings_and_schedule.sql` | 部門別設定・公開状態、予選/決勝の時間幅、大会共通の休憩枠に対応 |
+> | `migration_010_result_approval_security.sql` | 非公開のチームPINハッシュと敗者による差し戻しに対応 |
    >
    > （これから初めて `schema.sql` を実行する場合は、マイグレーションは不要です）
 
@@ -585,8 +587,8 @@ openssl rand -base64 32
 
 | 機能 | 実装の入口 |
 | --- | --- |
-| 試合ごとのPINコード | `matches` に `pin` 列を追加し、`src/app/api/matches/[id]/report/route.ts` で照合する |
-| 結果承認時の本人確認 | 現在は敗者名を明示した承認ボタン。厳密に本人確認する場合はチームPINを承認APIでも照合する |
+| チームPINの配布 | 管理画面のチームごとに6〜12桁の数字を設定し、そのチーム代表者だけへ伝える。再表示はできず、再設定で更新する |
+| 結果承認時の本人確認 | 勝者がPIN付きで仮送信し、敗者が自チームのPINで承認または理由付き差し戻しを行う。確定後は管理者のみ訂正可能。管理者訂正は即時確定し、履歴へ記録される |
 | 結果の変更履歴の表示 | すでに `match_events` に全履歴が入っているので、管理画面に一覧を出すだけ |
 | 複数大会の同時運用 | `tournaments` は複数行を持てる構造です。`getState()` の「1件目を取る」処理をURLパラメータ指定に変える |
 | 独自の同率ルール | `src/lib/standings.ts` の `compareBy()` に条件を追加し、`Tiebreaker` 型に名前を足す |

@@ -151,7 +151,7 @@ async function getTournamentWithDivisions(
 export async function getState(
   tournamentId?: string | null,
   divisionId?: string | null,
-  includeNonPublic = false
+  includeNonPublic = true
 ): Promise<TournamentState> {
   const db = supabaseAdmin();
   const { tournament, divisions: allDivisions } = await getTournamentWithDivisions(tournamentId);
@@ -695,6 +695,7 @@ export async function submitResultForApproval(input: Pick<ResultInput, "matchId"
     .eq("tournament_id", match.tournament_id)
     .eq("division_id", match.division_id)
     .neq("approval_status", "approved")
+    .eq("updated_at", found.updated_at)
     .select("*")
     .maybeSingle();
   if (error) throw new Error(error.message);
@@ -766,6 +767,7 @@ export async function approvePendingResult(matchId: string, teamId: string, pin:
     })
     .eq("id", match.id)
     .eq("approval_status", "pending")
+    .eq("updated_at", found.updated_at)
     .select("*")
     .maybeSingle();
   if (error) throw new Error(error.message);
@@ -807,7 +809,7 @@ export async function rejectPendingResult(matchId: string, teamId: string, pin: 
     rejected_by_team_id: loser,
     rejected_at: now,
     updated_at: now,
-  }).eq("id", match.id).eq("approval_status", "pending").select("*").maybeSingle();
+  }).eq("id", match.id).eq("approval_status", "pending").eq("updated_at", found.updated_at).select("*").maybeSingle();
   if (error) throw new Error(error.message);
   if (!updated) throw new Error("すでに別の操作で更新されています。画面を再読み込みしてください。");
   await logMatchEvent({
