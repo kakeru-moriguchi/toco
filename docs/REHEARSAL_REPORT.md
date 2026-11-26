@@ -61,7 +61,7 @@ DB検証にはPGliteのPostgreSQLエンジンを使用。実際の `supabase/sch
 
 ## コマンドと結果
 
-- `npm test`：28テスト成功（大会完走・PDF固定時刻の保存テストを含む）。
+- `npm test`：29テスト成功（大会完走・PDF固定時刻の保存・組み合わせリセットのテストを含む）。
 - `npm run typecheck`：成功。
 - `npm run lint`：成功。
 - `npm run build`：成功。

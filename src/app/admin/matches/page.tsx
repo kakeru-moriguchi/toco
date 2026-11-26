@@ -7,7 +7,7 @@ import { adminPost } from "@/lib/adminApi";
 import { LoadingBlock, StatusBadge } from "@/components/ui";
 import { ResultEditor } from "@/components/ResultEditor";
 import { divisionGameLabels } from "@/lib/divisionFormat";
-import { matchGroupName, sideName, sortMatches } from "@/lib/view";
+import { matchGroupName, qualifyingLeagues, sideName, sortMatches } from "@/lib/view";
 
 export default function AdminMatchesPage() {
   const { state, loading, refresh } = useTournamentState("admin");
@@ -65,6 +65,20 @@ export default function AdminMatchesPage() {
             >
               リーグ戦の対戦カードを作成する
             </button>
+            <button
+              className="btn-danger w-full"
+              disabled={busy || !state.matches.some((m)=>m.stage === 'league' && m.tier_key === null)}
+              onClick={() => {
+                const ids = new Set(qualifyingLeagues(state).map((league)=>league.id));
+                const count = state.matches.filter((m)=>m.stage === 'league' && m.league_id && ids.has(m.league_id)).length;
+                if (confirm(`「${state.division.name}」の予選${count}試合の組み合わせを作成前に戻します。対戦カード・試合結果・承認待ちの入力・進行表と試合履歴は削除され、元に戻せません。チーム登録・PIN・リーグ分け・大会設定は残ります。続けますか？`)) {
+                  void call('/api/admin/actions',{action:'reset_league',confirm:state.division.id},'予選リーグの組み合わせを作成前に戻しました');
+                }
+              }}
+            >
+              予選リーグの組み合わせをリセット
+            </button>
+            <p className="text-xs text-ink-500">選択中の部門だけを作成前に戻します。決勝ラウンドがある場合は、先に決勝の組み合わせをリセットしてください。</p>
           </section>
 
           <div className="scroll-x -mx-1 flex gap-2 px-1">

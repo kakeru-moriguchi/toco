@@ -254,10 +254,35 @@ export async function ensureLeagues(tournamentId: string, divisionId: string, co
   return getQualifyingLeagues(tournamentId, divisionId);
 }
 
-/**
- * リーグ戦の対戦カードを作り直す。
- * 既存のリーグ戦結果は消えるので、管理画面では確認ダイアログを出している。
- */
+/** 選択部門の組み合わせだけを未作成へ戻す。チーム・PIN・予選リーグ分けは保持。 */
+export async function resetDivisionCombinations(tournamentId: string, divisionId: string, phase: 'qualifying' | 'finals') {
+  await getDivision(tournamentId,divisionId);
+  const db = supabaseAdmin();
+  const [matchResult,leagueResult] = await Promise.all([
+    db.from('matches').select('id,stage,tier_key,league_id').eq('tournament_id',tournamentId).eq('division_id',divisionId),
+    db.from('leagues').select('id').eq('tournament_id',tournamentId).eq('division_id',divisionId).not('tier_key','is',null),
+  ]);
+  if (matchResult.error) throw new Error(matchResult.error.message);
+  if (leagueResult.error) throw new Error(leagueResult.error.message);
+  const tierLeagueIds = (leagueResult.data ?? []).map((league)=>league.id as string);
+  const isFinal = (match: {stage: string; tier_key: string | null; league_id: string | null}) => match.stage === 'bracket' || match.tier_key !== null || (match.league_id !== null && tierLeagueIds.includes(match.league_id));
+  const matches = matchResult.data ?? [];
+  if (phase === 'qualifying' && (tierLeagueIds.length > 0 || matches.some(isFinal))) {
+    throw new Error('決勝ラウンドが残っています。先に「決勝ラウンドの組み合わせをリセット」を実行してから、予選リーグをリセットしてください。');
+  }
+  const ids = matches.filter((match)=>phase === 'finals' ? isFinal(match) : !isFinal(match)).map((match)=>match.id as string);
+  if (ids.length > 0) {
+    const {error} = await db.from('matches').delete().eq('tournament_id',tournamentId).eq('division_id',divisionId).in('id',ids);
+    if (error) throw new Error(error.message);
+  }
+  if (phase === 'finals' && tierLeagueIds.length > 0) {
+    const {error} = await db.from('leagues').delete().eq('tournament_id',tournamentId).eq('division_id',divisionId).in('id',tierLeagueIds);
+    if (error) throw new Error(error.message);
+  }
+  // 大会全体のphaseは他部門とも共通なので、部門リセットでは変更しない。
+}
+
+/** リーグ戦の対戦カードを作り直す。既存結果の削除は管理画面で確認する。 */
 export async function regenerateLeagueMatches(tournamentId: string, divisionId: string) {
   const db = supabaseAdmin();
   const tournament = await getTournament(tournamentId);

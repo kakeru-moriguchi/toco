@@ -9,6 +9,7 @@ import {
   getState,
   getTournament,
   regenerateLeagueMatches,
+  resetDivisionCombinations,
   syncConsolation,
   logMatchEvent,
 } from "@/lib/data";
@@ -21,20 +22,28 @@ export const dynamic = "force-dynamic";
  * 大会運営のまとめ操作
  *   generate_league … リーグ戦の対戦カードを作成（作り直し）
  *   generate_bracket… 予選順位から決勝トーナメントを作成
- *   reset_bracket   … 決勝トーナメントを削除
+ *   reset_league / reset_bracket … 選択部門の組み合わせを未作成へ戻す
  *   reset_tournament… 次の大会に向けて大会データを初期化
  *   auto_schedule   … 進行表（時間・コート）を自動割り当て
  */
 export async function POST(req: NextRequest) {
   if (!(await requireAdmin(req))) return fail("認証が必要です。", 401);
   try {
+    const body = await req.json();
+    const action = String(body?.action ?? "");
+    if ((action === 'reset_league' || action === 'reset_bracket') && (!tournamentIdFromRequest(req) || !divisionIdFromRequest(req))) {
+      return fail('リセットする大会・部門を選び、画面からもう一度実行してください。');
+    }
     const db = supabaseAdmin();
     const tournament = await getTournament(tournamentIdFromRequest(req));
     const division = await getDivision(tournament.id, divisionIdFromRequest(req));
-    const body = await req.json();
-    const action = String(body?.action ?? "");
 
-    if (action === 'cancel_consolation') {
+    if (action === 'reset_league' || action === 'reset_bracket') {
+      if (body.confirm !== division.id) {
+        return fail('リセットする大会・部門を確認し、画面からもう一度実行してください。');
+      }
+      await resetDivisionCombinations(tournament.id,division.id,action === 'reset_league' ? 'qualifying' : 'finals');
+    } else if (action === 'cancel_consolation') {
       const tierKey = String(body.tier_key ?? '');
       if (body.confirm !== true || !tierKey) return fail('取り消すコンソレーションを確認してください。');
       const { data: cancelled, error } = await db.from('matches').update({ consolation_void: true, updated_at: new Date().toISOString() })
@@ -71,23 +80,6 @@ export async function POST(req: NextRequest) {
       }
       const result = await generateBracket(tournament.id, division.id, { startTime: body.startTime });
       return ok({ ...(await getState(tournament.id, division.id)), tiers: result.tiers });
-    } else if (action === "reset_bracket") {
-      // 決勝ラウンドを丸ごと削除（トーナメントの試合と、総当たり級のリーグごと）
-      await db
-        .from("matches")
-        .delete()
-        .eq("tournament_id", tournament.id)
-        .eq("division_id", division.id)
-        .eq("stage", "bracket");
-      const { data: tierLeagues } = await db
-        .from("leagues")
-        .select("id")
-        .eq("tournament_id", tournament.id)
-        .eq("division_id", division.id)
-        .not("tier_key", "is", null);
-      const ids = (tierLeagues ?? []).map((l) => l.id as string);
-      if (ids.length > 0) await db.from("leagues").delete().in("id", ids);
-      await db.from("tournaments").update({ phase: "league" }).eq("id", tournament.id);
     } else if (action === "reset_tournament") {
       // 大会名の入力をサーバー側でも照合し、誤操作や直接のAPI呼び出しを防ぐ。
       if (body.confirm !== tournament.name) {
