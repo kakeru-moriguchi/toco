@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "./supabase";
-import { assignSchedule, qualifyingPairs, roundRobin } from "./schedule";
+import { assignSchedule, formatTime, parseTime, qualifyingPairs, roundRobin } from "./schedule";
+import { consolationCandidates, planConsolationPairs } from './consolation';
 import { planBracketsFromLeagues, resolveBracketProgress, type PlannedTier } from "./bracket";
 import { normalizeTiers } from "./tiers";
 import { normalizeSets, validateSets } from "./score";
@@ -57,6 +58,7 @@ function toDivision(row: Record<string, unknown>): Division {
     courts: Array.isArray(row.courts) ? row.courts.map(String).filter(Boolean) : null,
     bracket_tiers: row.bracket_tiers == null ? null : normalizeTiers(row.bracket_tiers),
     finals_enabled: row.finals_enabled !== false,
+    consolation_enabled: row.consolation_enabled === true,
     qualifying_match_order: rawOrder === "toco_5_team" ? "toco_5_team" : "balanced",
     game_labels: Array.isArray(row.game_labels) ? row.game_labels.map(String).filter(Boolean) : null,
   };
@@ -174,7 +176,7 @@ export async function getState(
     divisions,
     leagues: (leagues.data ?? []) as League[],
     teams: (teams.data ?? []) as Team[],
-    matches: (matches.data ?? []).map((m) => toMatch(m as Record<string, unknown>)),
+    matches: (matches.data ?? []).filter((m) => !m.consolation_void).map((m) => toMatch(m as Record<string, unknown>)),
   };
 }
 
@@ -343,7 +345,7 @@ export async function autoAssignSchedule(
     .select("*")
     .eq("tournament_id", tournamentId);
   if (tournamentMatchError) throw new Error(tournamentMatchError.message);
-  const tournamentMatches = (tournamentMatchData ?? []) as Match[];
+  const tournamentMatches = (tournamentMatchData ?? []).filter((m) => !m.consolation_void) as Match[];
   const all = tournamentMatches.filter((match) => match.division_id === divisionId);
 
   const isQualifying = (m: Match) =>
@@ -612,13 +614,14 @@ async function createTierLeague(
  */
 export async function recomputeBracket(tournamentId: string, divisionId: string) {
   const db = supabaseAdmin();
-  const { data } = await db
+  const { data, error: readError } = await db
     .from("matches")
     .select("*")
     .eq("tournament_id", tournamentId)
     .eq("division_id", divisionId)
     .eq("stage", "bracket")
     .order("round");
+  if (readError) throw new Error(readError.message);
   const matches = (data ?? []) as Match[];
   if (matches.length === 0) return;
 
@@ -631,6 +634,40 @@ export async function recomputeBracket(tournamentId: string, divisionId: string)
       .eq("division_id", divisionId);
     if (error) throw new Error(error.message);
   }
+  await syncConsolation(tournamentId, divisionId);
+}
+
+/** 自動生成は対象確定後の偶数組だけ。奇数組は管理者の明示操作に任せる。 */
+export async function syncConsolation(tournamentId: string, divisionId: string, manual?: { tierKey: string; teamAId: string; teamBId: string }) {
+  const state = await getState(tournamentId, divisionId);
+  if (!state.division.consolation_enabled || !state.division.finals_enabled) {
+    if (manual) throw new Error('部門のコンソレーションを有効にしてください。');
+    return;
+  }
+  const db = supabaseAdmin();
+  const { data: allMatches, error } = await db.from('matches').select('*').eq('tournament_id', tournamentId);
+  if (error) throw new Error(error.message);
+  const existing = (allMatches ?? []).filter((m) => !m.consolation_void) as Match[];
+  const minutes = divisionFinalsMinutes(state.division, state.tournament);
+  for (const tier of divisionTiers(state.division, state.tournament).filter((t) => t.format === 'bracket' && (!manual || t.key === manual.tierKey))) {
+    const candidates = consolationCandidates(state.matches, tier.key);
+    const pairs = manual ? [[manual.teamAId, manual.teamBId]] as [string,string][] : planConsolationPairs(state.matches, tier.key);
+    if (!pairs.length) continue;
+    if (manual && (!candidates.ready || manual.teamAId === manual.teamBId || !pairs[0].every((id) => candidates.available.includes(id)))) {
+      throw new Error('対象確定後、未割り当ての初戦敗退チームから異なる2組を選んでください。');
+    }
+    const latest = existing.reduce((time, m) => m.scheduled_at ? Math.max(time, parseTime(m.scheduled_at)+(m.duration_minutes ?? minutes)) : time, parseTime(divisionFinalsStartTime(state.division, state.tournament)));
+    if (latest+minutes*pairs.length > 1440) throw new Error('当日中にコンソレーションを配置できません。進行表を調整してください。');
+    const courts = divisionCourts(state.division, state.tournament);
+    const assignments = assignSchedule(pairs.map(([teamAId, teamBId], i) => ({ id: String(i), teamAId, teamBId })), {
+      startTime: formatTime(latest), minutesPerMatch: minutes, courts,
+      reserved: state.tournament.schedule_blocks.flatMap((block) => courts.map((court) => ({ court, scheduledAt: block.start_time, durationMinutes: parseTime(block.end_time)-parseTime(block.start_time) }))),
+    });
+    const rows = pairs.map(([team_a_id,team_b_id], i) => ({ team_a_id,team_b_id,court: assignments[i].court,scheduled_at: assignments[i].scheduledAt,duration_minutes: minutes }));
+    const { error: insertError } = await db.rpc('create_consolation_matches', { p_tournament_id: tournamentId, p_division_id: divisionId, p_tier_key: tier.key, p_rows: rows });
+    if (insertError) throw new Error(insertError.message);
+    rows.forEach((row) => existing.push({ ...row } as Match));
+  }
 }
 
 export type ResultInput = {
@@ -642,6 +679,15 @@ export type ResultInput = {
   tournamentId?: string;
   divisionId?: string;
 };
+
+async function checkConsolationBeforeCorrection(match: Match) {
+  if (match.stage !== 'bracket' || match.is_consolation || match.status !== 'done') return;
+  const { data, error } = await supabaseAdmin().from('matches').select('id')
+    .eq('tournament_id', match.tournament_id).eq('division_id', match.division_id)
+    .eq('tier_key', match.tier_key).eq('is_consolation', true).eq('consolation_void', false).limit(1);
+  if (error) throw new Error(error.message);
+  if (data?.length) throw new Error('初戦敗退者が変わる可能性があります。決勝ラウンド画面でこの級のコンソレーションを取り消してから本戦結果を訂正してください。');
+}
 
 /**
  * 参加者が入力した結果を承認待ちとして保存する。
@@ -836,6 +882,7 @@ export async function saveResult(input: ResultInput): Promise<Match> {
     .single();
   if (findError || !found) throw new Error("試合が見つかりませんでした。");
   const match = found as Match;
+  await checkConsolationBeforeCorrection(match);
   if (input.tournamentId && match.tournament_id !== input.tournamentId) {
     throw new Error("選択中の大会に属さない試合です。");
   }
@@ -914,6 +961,7 @@ export async function clearResult(matchId: string, tournamentId?: string, divisi
   const { data: found } = await db.from("matches").select("*").eq("id", matchId).single();
   if (!found) throw new Error("試合が見つかりませんでした。");
   const match = found as Match;
+  await checkConsolationBeforeCorrection(match);
   if (tournamentId && match.tournament_id !== tournamentId) {
     throw new Error("選択中の大会に属さない試合です。");
   }

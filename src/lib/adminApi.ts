@@ -13,6 +13,13 @@ function adminHeaders() {
 }
 
 /** 管理画面から叩くAPIの共通ラッパー */
+export async function adminGet(path: string): Promise<Record<string, unknown>> {
+  const res = await fetch(path, { headers: adminHeaders(), cache: 'no-store' });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(json?.error ?? '取得できませんでした。');
+  return json;
+}
+
 export async function adminPost(path: string, body: unknown): Promise<Record<string, unknown>> {
   const res = await fetch(path, {
     method: "POST",

@@ -89,7 +89,7 @@ export function BracketView({
 }) {
   const { rounds, thirdPlace, height } = useMemo(() => {
     const bracket = state.matches.filter(
-      (m) => m.stage === "bracket" && (tierKey === undefined || m.tier_key === tierKey)
+      (m) => m.stage === "bracket" && !m.is_consolation && (tierKey === undefined || m.tier_key === tierKey)
     );
     const third = bracket.find((m) => m.is_third_place) ?? null;
     const main = bracket.filter((m) => !m.is_third_place);

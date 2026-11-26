@@ -101,6 +101,7 @@ export async function POST(req: NextRequest) {
         courts,
         bracket_tiers: tiers,
         finals_enabled: finalsEnabled,
+        consolation_enabled: finalsEnabled && body.consolation_enabled === true,
         qualifying_match_order: matchOrder,
         game_labels: labels.length > 0 ? labels : null,
         updated_at: new Date().toISOString(),
