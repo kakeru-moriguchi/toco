@@ -11,7 +11,7 @@ import {
   regenerateLeagueMatches,
 } from "@/lib/data";
 import { divisionIdFromRequest, errorMessage, fail, ok, requireAdmin, tournamentIdFromRequest } from "@/lib/api";
-import { divisionCourts, divisionLeagueCount } from "@/lib/divisionFormat";
+import { divisionCourts, divisionFinalsMinutes, divisionFinalsStartTime, divisionLeagueCount, divisionQualifyingMinutes, divisionStartTime } from "@/lib/divisionFormat";
 
 export const dynamic = "force-dynamic";
 
@@ -116,10 +116,26 @@ export async function POST(req: NextRequest) {
       }
     } else if (action === "auto_schedule") {
       const phase = body.stage === "bracket" || body.phase === "finals" ? "finals" : "qualifying";
+      const state = await getState(tournament.id, division.id);
+      const targets = state.matches.filter((match) => phase === "qualifying"
+        ? match.stage === "league" && match.tier_key === null
+        : !(match.stage === "league" && match.tier_key === null));
+      if (targets.length === 0) {
+        return fail(phase === "qualifying"
+          ? "予選の対戦カードがありません。先にリーグ戦の対戦カードを作成してください。"
+          : "決勝ラウンドの対戦カードがありません。先に決勝ラウンドを作成してください。");
+      }
+      if (targets.some((match) => match.scheduled_at || match.court) && body.confirmOverwrite !== true) {
+        return fail("作成済みの進行表があります。上書きを確認してからもう一度実行してください。", 409);
+      }
+      const courts = Array.isArray(body.courts) && body.courts.length > 0 ? body.courts : divisionCourts(division, tournament);
+      if (courts.length === 0) return fail("使用コートが設定されていません。大会情報でコートを設定してください。");
+      const startTime = String(body.startTime || (phase === "finals" ? divisionFinalsStartTime(division, tournament) : divisionStartTime(division, tournament)));
+      if (!/^\d{1,2}:\d{2}$/.test(startTime)) return fail("開始時刻を 09:00 の形式で設定してください。");
       await autoAssignSchedule(tournament.id, division.id, phase, {
-        startTime: String(body.startTime || tournament.start_time),
-        minutesPerMatch: Number(body.minutesPerMatch || tournament.minutes_per_match),
-        courts: Array.isArray(body.courts) && body.courts.length > 0 ? body.courts : divisionCourts(division, tournament),
+        startTime,
+        minutesPerMatch: Number(body.minutesPerMatch || (phase === "finals" ? divisionFinalsMinutes(division, tournament) : divisionQualifyingMinutes(division, tournament))),
+        courts,
       });
     } else {
       return fail("不明な操作です。");

@@ -26,7 +26,7 @@ export default function ReportListPage() {
   }, [state, keyword, showDone]);
 
   return (
-    <PageShell title="試合結果を入力する" subtitle="自分のチームの試合を選んでください">
+    <PageShell title="試合結果を入力する" subtitle="自分のチームの試合を選んでください" divisionSelection={state ? { tournamentId: state.tournament.id, divisions: state.divisions, divisionId: state.division.id } : undefined}>
       <div className="card mb-4 space-y-3 p-4">
         <div>
           <label className="label" htmlFor="team-search">
@@ -76,8 +76,10 @@ export default function ReportListPage() {
                     <span className="text-ink-500">{matchGroupName(m, state)}</span>
                     {m.approval_status === "pending" ? (
                       <span className="chip bg-amber-100 text-amber-900">承認待ち</span>
+                    ) : m.approval_status === "rejected" ? (
+                      <span className="chip bg-red-100 text-red-800">修正依頼</span>
                     ) : (
-                      <StatusBadge status={m.status} />
+                      <StatusBadge status={m.status} approvalStatus={m.approval_status} />
                     )}
                   </div>
                   <p className="text-[15px] font-bold leading-snug">
@@ -102,7 +104,7 @@ export default function ReportListPage() {
                   )}
                 </div>
                 <span className="btn-accent btn-sm shrink-0">
-                  {m.approval_status === "pending" ? "承認" : m.status === "done" ? "確認" : "入力"}
+                  {m.approval_status === "pending" ? "承認" : m.approval_status === "rejected" ? "修正" : m.status === "done" ? "確認" : "入力"}
                 </span>
               </Link>
             </li>

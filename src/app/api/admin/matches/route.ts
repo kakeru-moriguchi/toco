@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { clearResult, getDivision, getState, getTournament, logMatchEvent, saveResult } from "@/lib/data";
 import { divisionIdFromRequest, errorMessage, fail, ok, readSets, requireAdmin, tournamentIdFromRequest } from "@/lib/api";
 import { findCourtConflict, normalizeScheduledAt, type CourtSlot } from "@/lib/schedule";
+import { divisionQualifyingMinutes } from "@/lib/divisionFormat";
 
 export const dynamic = "force-dynamic";
 
@@ -15,10 +16,20 @@ async function validateCourtSchedule(params: {
   const db = supabaseAdmin();
   const { data, error } = await db
     .from("matches")
-    .select("id, division_id, court, scheduled_at")
+    .select("id, division_id, court, scheduled_at, duration_minutes, team_a_id, team_b_id")
     .eq("tournament_id", params.tournamentId);
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as CourtSlot[];
+  const tournament = await getTournament(params.tournamentId);
+  const courts = [...new Set([...rows.map((row) => row.court), params.newMatch?.court ?? ""].filter(Boolean))];
+  for (const [blockIndex, block] of tournament.schedule_blocks.entries()) {
+    const [startHour, startMinute] = block.start_time.split(":").map(Number);
+    const [endHour, endMinute] = block.end_time.split(":").map(Number);
+    const duration = endHour * 60 + endMinute - (startHour * 60 + startMinute);
+    for (const court of courts) {
+      rows.push({ id: `__block_${blockIndex}_${court}`, division_id: "", court, scheduled_at: block.start_time, duration_minutes: duration });
+    }
+  }
   const byId = new Map(rows.map((row) => [row.id, row]));
 
   for (const [id, patch] of params.updates) {
@@ -28,18 +39,19 @@ async function validateCourtSchedule(params: {
     }
     if (typeof patch.court === "string") current.court = patch.court;
     if (typeof patch.scheduled_at === "string") current.scheduled_at = patch.scheduled_at;
+    if (typeof patch.duration_minutes === "number") current.duration_minutes = patch.duration_minutes;
   }
   if (params.newMatch) rows.push(params.newMatch);
 
   const watched = new Set(
     [...params.updates]
-      .filter(([, patch]) => typeof patch.court === "string" || typeof patch.scheduled_at === "string")
+      .filter(([, patch]) => typeof patch.court === "string" || typeof patch.scheduled_at === "string" || typeof patch.duration_minutes === "number")
       .map(([id]) => id)
   );
   if (params.newMatch) watched.add(params.newMatch.id);
   const conflict = findCourtConflict(rows, watched);
   if (conflict) {
-    throw new Error("同じ時刻の同じコートに別の試合があります。大会全体で重複しない時刻またはコートを指定してください。");
+    throw new Error("指定した時間帯は、同じコート・同じチームの試合、または休憩・予約枠と重複しています。");
   }
 }
 
@@ -54,6 +66,7 @@ async function validateCourtSchedule(params: {
  *   schedule      … 試合番号 / 時間 / コート の変更
  *   bulk_schedule … 複数試合の試合番号 / 時間 / コートをまとめて変更
  *   move          … 進行順を1つ上/下へ入れ替え
+ *   swap_bracket_slots … 決勝ラウンド作成後、未開始の出場枠を入れ替える
  */
 export async function POST(req: NextRequest) {
   if (!(await requireAdmin(req))) return fail("認証が必要です。", 401);
@@ -104,6 +117,9 @@ export async function POST(req: NextRequest) {
           division_id: division.id,
           court,
           scheduled_at: scheduledAt,
+          duration_minutes: divisionQualifyingMinutes(division, tournament),
+          team_a_id: teamAId,
+          team_b_id: teamBId,
         },
       });
       const { data: created, error } = await db
@@ -116,6 +132,7 @@ export async function POST(req: NextRequest) {
           match_no: matchNo,
           scheduled_at: scheduledAt,
           court,
+          duration_minutes: divisionQualifyingMinutes(division, tournament),
           status: "pending",
           team_a_id: teamAId,
           team_b_id: teamBId,
@@ -213,6 +230,11 @@ export async function POST(req: NextRequest) {
           if (v && !/^\d{1,2}:\d{2}$/.test(v)) return fail("時刻は 09:00 の形式で入力してください。");
           patch.scheduled_at = v ? normalizeScheduledAt(v) : "";
         }
+        if (item.duration_minutes !== undefined) {
+          const duration = Math.trunc(Number(item.duration_minutes));
+          if (!Number.isFinite(duration) || duration < 5 || duration > 180) return fail("試合時間は5〜180分で入力してください。");
+          patch.duration_minutes = duration;
+        }
         if (item.match_no !== undefined) {
           const n = Math.trunc(Number(item.match_no));
           if (!Number.isFinite(n) || n < 0 || n > 9999) return fail("試合番号が不正です。");
@@ -246,6 +268,11 @@ export async function POST(req: NextRequest) {
         if (v && !/^\d{1,2}:\d{2}$/.test(v)) return fail("時刻は 09:00 の形式で入力してください。");
         patch.scheduled_at = v ? normalizeScheduledAt(v) : "";
       }
+      if (body.duration_minutes !== undefined) {
+        const duration = Math.trunc(Number(body.duration_minutes));
+        if (!Number.isFinite(duration) || duration < 5 || duration > 180) return fail("試合時間は5〜180分で入力してください。");
+        patch.duration_minutes = duration;
+      }
       if (body.match_no !== undefined) {
         const n = Math.trunc(Number(body.match_no));
         if (!Number.isFinite(n) || n < 0 || n > 9999) return fail("試合番号が不正です。");
@@ -263,6 +290,33 @@ export async function POST(req: NextRequest) {
         .eq("tournament_id", tournament.id)
         .eq("division_id", division.id);
       if (error) throw new Error(error.message);
+    } else if (action === "swap_bracket_slots") {
+      const targetId = String(body.target_id ?? "");
+      const slot = body.slot === "b" ? "b" : "a";
+      const targetSlot = body.target_slot === "b" ? "b" : "a";
+      const { data: rows, error } = await db.from("matches").select("*")
+        .in("id", [id, targetId]).eq("tournament_id", tournament.id).eq("division_id", division.id);
+      if (error) throw new Error(error.message);
+      if (!rows || rows.length !== 2) return fail("入れ替える試合が見つかりません。");
+      const first = rows.find((row) => row.id === id);
+      const second = rows.find((row) => row.id === targetId);
+      if (!first || !second || first.stage !== "bracket" || second.stage !== "bracket" || first.tier_key !== second.tier_key) {
+        return fail("同じ決勝ラウンド内の枠だけ入れ替えできます。");
+      }
+      const { count } = await db.from("matches").select("id", { count: "exact", head: true })
+        .eq("tournament_id", tournament.id).eq("division_id", division.id).eq("tier_key", first.tier_key).neq("status", "pending");
+      if ((count ?? 0) > 0) return fail("試合開始後は組み合わせを入れ替えできません。結果を取り消してから操作してください。");
+      const firstId = slot === "a" ? first.team_a_id : first.team_b_id;
+      const secondId = targetSlot === "a" ? second.team_a_id : second.team_b_id;
+      if (!firstId || !secondId) return fail("チームが確定している2つの枠を選んでください。");
+      const firstLabel = slot === "a" ? first.team_a_label : first.team_b_label;
+      const secondLabel = targetSlot === "a" ? second.team_a_label : second.team_b_label;
+      const firstPatch = slot === "a" ? { team_a_id: secondId, team_a_label: secondLabel } : { team_b_id: secondId, team_b_label: secondLabel };
+      const secondPatch = targetSlot === "a" ? { team_a_id: firstId, team_a_label: firstLabel } : { team_b_id: firstId, team_b_label: firstLabel };
+      const firstUpdate = await db.from("matches").update(firstPatch).eq("id", first.id).eq("status", "pending");
+      if (firstUpdate.error) throw new Error(firstUpdate.error.message);
+      const secondUpdate = await db.from("matches").update(secondPatch).eq("id", second.id).eq("status", "pending");
+      if (secondUpdate.error) throw new Error(secondUpdate.error.message);
     } else if (action === "move") {
       const state = await getState(tournament.id, division.id);
       const ordered = [...state.matches].sort((a, b) => a.match_no - b.match_no);
@@ -284,13 +338,13 @@ export async function POST(req: NextRequest) {
       // 試合番号・時間・コートをまとめて入れ替える
       await db
         .from("matches")
-        .update({ match_no: b.match_no, scheduled_at: b.scheduled_at, court: b.court })
+        .update({ match_no: b.match_no, scheduled_at: b.scheduled_at, court: b.court, duration_minutes: b.duration_minutes })
         .eq("id", a.id)
         .eq("tournament_id", tournament.id)
         .eq("division_id", division.id);
       await db
         .from("matches")
-        .update({ match_no: a.match_no, scheduled_at: a.scheduled_at, court: a.court })
+        .update({ match_no: a.match_no, scheduled_at: a.scheduled_at, court: a.court, duration_minutes: a.duration_minutes })
         .eq("id", b.id)
         .eq("tournament_id", tournament.id)
         .eq("division_id", division.id);

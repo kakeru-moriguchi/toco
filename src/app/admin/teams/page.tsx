@@ -8,7 +8,7 @@ import { LoadingBlock } from "@/components/ui";
 import type { Team } from "@/lib/types";
 
 export default function AdminTeamsPage() {
-  const { state, loading, refresh } = useTournamentState();
+  const { state, loading, refresh } = useTournamentState("admin");
   const [bulk, setBulk] = useState("");
   const [name, setName] = useState("");
   const [members, setMembers] = useState("");
@@ -16,6 +16,7 @@ export default function AdminTeamsPage() {
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "error" } | null>(null);
   const [editing, setEditing] = useState<Record<string, Partial<Team>>>({});
   const [leagueNames, setLeagueNames] = useState<Record<string, string>>({});
+  const [pins, setPins] = useState<Record<string, string>>({});
 
   const notify = (msg: string, tone: "ok" | "error" = "ok") => {
     setToast({ msg, tone });
@@ -201,6 +202,26 @@ export default function AdminTeamsPage() {
                           />
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
+                          <input
+                            className="field w-36"
+                            inputMode="numeric"
+                            type="password"
+                            placeholder="結果入力PIN"
+                            value={pins[team.id] ?? ""}
+                            onChange={(event) => setPins((current) => ({ ...current, [team.id]: event.target.value.replace(/\D/g, "").slice(0, 12) }))}
+                            aria-label={`${team.name}の結果入力PIN`}
+                          />
+                          <button
+                            className="btn-ghost btn-sm"
+                            disabled={busy || !/^\d{6,12}$/.test(pins[team.id] ?? "")}
+                            onClick={async () => {
+                              if (await call({ action: "set_result_pin", id: team.id, pin: pins[team.id] }, "結果入力PINを設定しました")) {
+                                setPins((current) => ({ ...current, [team.id]: "" }));
+                              }
+                            }}
+                          >
+                            PIN設定
+                          </button>
                           <select
                             className="field w-auto min-w-[140px]"
                             value={team.league_id ?? ""}

@@ -9,12 +9,12 @@ import { matchGroupName, sideName, sortMatches } from "@/lib/view";
 import { divisionCourts } from "@/lib/divisionFormat";
 
 export default function AdminSchedulePage() {
-  const { state, loading, refresh } = useTournamentState();
+  const { state, loading, refresh } = useTournamentState("admin");
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "error" } | null>(null);
   const [stage, setStage] = useState<"league" | "bracket">("league");
   const [startTime, setStartTime] = useState("");
-  const [drafts, setDrafts] = useState<Record<string, { court?: string; scheduled_at?: string; match_no?: string }>>({});
+  const [drafts, setDrafts] = useState<Record<string, { court?: string; scheduled_at?: string; match_no?: string; duration_minutes?: string }>>({});
   const [courtFilter, setCourtFilter] = useState<string>("all");
   const [manualLeagueId, setManualLeagueId] = useState("");
   const [manualTeamAId, setManualTeamAId] = useState("");
@@ -145,7 +145,7 @@ export default function AdminSchedulePage() {
           <section className="card space-y-3 p-4">
             <h2 className="text-sm font-black text-court-800">時間とコートの自動割り当て</h2>
             <p className="text-xs text-ink-500">
-              現在の設定：開始 {state.tournament.start_time} / 1試合 {state.tournament.minutes_per_match}分 / コート{" "}
+              現在の設定：開始 {state.tournament.start_time} / 予選1試合 {state.tournament.minutes_per_match}分 / コート{" "}
               {divisionCourts(state.division, state.tournament).join("・")}（部門別設定）
             </p>
             <div className="grid gap-2 sm:grid-cols-3">
@@ -162,13 +162,18 @@ export default function AdminSchedulePage() {
               <button
                 className="btn-primary"
                 disabled={busy}
-                onClick={() =>
-                  call(
+                onClick={() => {
+                  const hasSchedule = state.matches.some((match) =>
+                    (stage === "league" ? match.stage === "league" && match.tier_key === null : !(match.stage === "league" && match.tier_key === null)) &&
+                    Boolean(match.scheduled_at || match.court)
+                  );
+                  if (hasSchedule && !confirm("作成済みの進行表を上書きします。手動調整した時刻・コートも置き換わります。続けますか？")) return;
+                  void call(
                     "/api/admin/actions",
-                    { action: "auto_schedule", stage, startTime: startTime || undefined },
+                    { action: "auto_schedule", stage, startTime: startTime || undefined, confirmOverwrite: hasSchedule },
                     "自動で割り当てました"
-                  )
-                }
+                  );
+                }}
               >
                 自動で割り当てる
               </button>
@@ -359,7 +364,7 @@ export default function AdminSchedulePage() {
                     <span className="mx-2 text-ink-500">vs</span>
                     {sideName(m, "b", state.teams)}
                   </p>
-                  <div className="grid grid-cols-3 gap-2">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                     <label className="text-xs font-bold text-court-800">
                       試合番号
                       <input
@@ -369,6 +374,15 @@ export default function AdminSchedulePage() {
                         onChange={(e) =>
                           setDrafts((s) => ({ ...s, [m.id]: { ...d, match_no: e.target.value.replace(/[^0-9]/g, "") } }))
                         }
+                      />
+                    </label>
+                    <label className="text-xs font-bold text-court-800">
+                      時間（分）
+                      <input
+                        className="field mt-1 h-11 text-center"
+                        inputMode="numeric"
+                        value={d.duration_minutes ?? String(m.duration_minutes ?? state.tournament.minutes_per_match)}
+                        onChange={(e) => setDrafts((s) => ({ ...s, [m.id]: { ...d, duration_minutes: e.target.value.replace(/[^0-9]/g, "") } }))}
                       />
                     </label>
                     <label className="text-xs font-bold text-court-800">

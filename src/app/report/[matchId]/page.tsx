@@ -67,6 +67,8 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
   const [submitting, setSubmitting] = useState(false);
   const [editingPending, setEditingPending] = useState(false);
   const [initialized, setInitialized] = useState(false);
+  const [teamPin, setTeamPin] = useState("");
+  const [rejectionReason, setRejectionReason] = useState("");
 
   const match = useMemo(
     () => state?.matches.find((m) => m.id === matchId) ?? null,
@@ -79,7 +81,7 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
   // すでに結果がある場合は、その値を初期表示にする（修正しやすくするため）
   useEffect(() => {
     if (!match || !state || initialized) return;
-    const existing = match.approval_status === "pending" ? match.pending_sets : matchSets(match);
+    const existing = match.approval_status === "pending" || match.approval_status === "rejected" ? match.pending_sets : matchSets(match);
     setInputs(
       Array.from({ length: limit }, (_, i) =>
         existing[i] ? { a: String(existing[i].a), b: String(existing[i].b) } : { a: "", b: "" }
@@ -120,7 +122,11 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
       const res = await fetch(`/api/matches/${matchId}/report`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sets }),
+        body: JSON.stringify({
+          sets,
+          team_id: check.winner === "a" ? match?.team_a_id : match?.team_b_id,
+          pin: teamPin,
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? "登録できませんでした。");
@@ -142,7 +148,11 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
       const res = await fetch(`/api/matches/${matchId}/report`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "approve" }),
+        body: JSON.stringify({
+          action: "approve",
+          team_id: match?.pending_winner_team_id === match?.team_a_id ? match?.team_b_id : match?.team_a_id,
+          pin: teamPin,
+        }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? "承認できませんでした。");
@@ -150,6 +160,30 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
       refresh();
     } catch (e) {
       setSubmitError(e instanceof Error ? e.message : "承認できませんでした。");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const reject = async () => {
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const res = await fetch(`/api/matches/${matchId}/report`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "reject",
+          team_id: match?.pending_winner_team_id === match?.team_a_id ? match?.team_b_id : match?.team_a_id,
+          pin: teamPin,
+          reason: rejectionReason,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error ?? "差し戻しできませんでした。");
+      await refresh();
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : "差し戻しできませんでした。");
     } finally {
       setSubmitting(false);
     }
@@ -236,6 +270,23 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
     );
   }
 
+  if (match.status === "done" && match.approval_status === "approved") {
+    return (
+      <PageShell title="確定した試合結果" subtitle={`${teamA} vs ${teamB}`} backHref="/report">
+        <div className="card space-y-4 p-5 text-center">
+          <span className="chip mx-auto bg-court-100 text-court-800">承認済み</span>
+          <p className="text-3xl font-black tabular-nums text-court-900">
+            {setsToWin === 1 ? `${match.score_a} - ${match.score_b}` : `${setsWon(match.sets).a} - ${setsWon(match.sets).b}`}
+          </p>
+          {setsToWin > 1 && <p className="font-bold text-ink-600">{match.sets.map((set) => `${set.a}-${set.b}`).join(" / ")}</p>}
+          <p className="text-sm font-bold text-ink-700">勝ち：{match.winner_team_id === match.team_a_id ? teamA : teamB}</p>
+          <p className="text-xs text-ink-500">参加者は確定後に変更できません。訂正が必要な場合は主催者へ連絡してください。</p>
+          <Link href="/report" className="btn-primary">試合一覧に戻る</Link>
+        </div>
+      </PageShell>
+    );
+  }
+
   if (match.approval_status === "pending" && !editingPending) {
     return (
       <PageShell title="結果の承認" subtitle={`${teamA} vs ${teamB}`} backHref="/report">
@@ -261,18 +312,30 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
 
           {submitError && <p className="rounded-xl bg-red-50 px-3 py-2 text-sm font-bold text-red-700">{submitError}</p>}
 
+          <label className="text-sm font-black text-court-800">
+            {pendingLoserName}のチームPIN
+            <input className="field mt-1" type="password" inputMode="numeric" value={teamPin} onChange={(event) => setTeamPin(event.target.value.replace(/\D/g, "").slice(0, 12))} placeholder="6〜12桁" />
+          </label>
+
           <div className="grid gap-2">
             <button
               className="btn-accent"
               onClick={() => {
                 if (confirm(`${pendingLoserName}の代表者として、この結果を承認します。よろしいですか？`)) approve();
               }}
-              disabled={submitting}
+              disabled={submitting || teamPin.length < 6}
             >
               {submitting ? "承認中…" : `${pendingLoserName}として承認する`}
             </button>
+            <label className="text-sm font-black text-court-800">
+              修正してほしい内容
+              <textarea className="field mt-1 min-h-20 py-2" value={rejectionReason} onChange={(event) => setRejectionReason(event.target.value)} placeholder="例：第2ゲームは 11-8 です" />
+            </label>
+            <button className="btn-danger" onClick={reject} disabled={submitting || teamPin.length < 6 || !rejectionReason.trim()}>
+              修正を依頼する
+            </button>
             <button className="btn-ghost" onClick={() => setEditingPending(true)} disabled={submitting}>
-              点数を修正して再送信する
+              勝者側として訂正する
             </button>
           </div>
           <p className="text-center text-xs leading-relaxed text-ink-500">
@@ -348,8 +411,13 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
             </p>
           )}
 
+          <label className="block text-sm font-black text-court-800">
+            勝利チーム「{winnerName}」のチームPIN
+            <input className="field mt-1" type="password" inputMode="numeric" value={teamPin} onChange={(event) => setTeamPin(event.target.value.replace(/\D/g, "").slice(0, 12))} placeholder="6〜12桁" />
+          </label>
+
           <div className="grid gap-2">
-            <button className="btn-accent" onClick={submit} disabled={submitting}>
+            <button className="btn-accent" onClick={submit} disabled={submitting || teamPin.length < 6}>
               {submitting ? "送信中…" : "勝者側として承認待ちへ送信する"}
             </button>
             <button className="btn-ghost" onClick={() => setStep("input")} disabled={submitting}>
@@ -378,6 +446,12 @@ export default function ReportMatchPage({ params }: { params: Promise<{ matchId:
       {match.approval_status === "pending" && editingPending && (
         <div className="card mb-3 border-l-4 border-l-amber-500 p-3 text-sm font-bold text-amber-900">
           承認待ちの結果を修正します。再送信すると承認待ちの内容が上書きされます。
+        </div>
+      )}
+      {match.approval_status === "rejected" && (
+        <div className="card mb-3 border-l-4 border-l-red-500 p-3 text-sm text-red-800">
+          <p className="font-black">敗者チームから修正依頼があります</p>
+          <p className="mt-1 whitespace-pre-wrap">{match.rejection_reason || "点数を確認して再送信してください。"}</p>
         </div>
       )}
 

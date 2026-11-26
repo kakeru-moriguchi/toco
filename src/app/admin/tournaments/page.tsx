@@ -50,7 +50,7 @@ export default function AdminTournamentsPage() {
     }
   };
 
-  const activeId = selectedTournamentId();
+  const activeId = selectedTournamentId("admin");
 
   return (
     <AdminShell title="大会一覧" description="大会を登録し、管理対象を切り替えます。">
@@ -69,7 +69,7 @@ export default function AdminTournamentsPage() {
               const result = await run({ action: "create", name, event_date: eventDate, venue }, "大会を登録しました");
               const created = result?.tournament as { id?: string } | undefined;
               if (created?.id) {
-                selectTournament(created.id);
+                selectTournament(created.id, "admin");
                 setName(""); setEventDate(""); setVenue("");
                 router.push("/admin/tournament");
               }
@@ -96,7 +96,7 @@ export default function AdminTournamentsPage() {
                 {!t.archived_at && (
                   <button
                     className="btn-primary btn-sm"
-                    onClick={() => { selectTournament(t.id); router.push("/admin"); }}
+                    onClick={() => { selectTournament(t.id, "admin"); router.push("/admin"); }}
                   >
                     この大会を管理
                   </button>
@@ -115,7 +115,7 @@ export default function AdminTournamentsPage() {
                         run({ action: "archive", id: t.id, confirm: confirmation }, "大会をアーカイブしました").then((result) => {
                           if (result && activeId === t.id) {
                             const next = items.find((item) => item.id !== t.id && !item.archived_at);
-                            if (next) selectTournament(next.id);
+                            if (next) selectTournament(next.id, "admin");
                           }
                         });
                       }

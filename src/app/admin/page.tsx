@@ -16,7 +16,7 @@ const STEPS = [
 ];
 
 export default function AdminHomePage() {
-  const { state, loading } = useTournamentState();
+  const { state, loading } = useTournamentState("admin");
 
   const stats = useMemo(() => {
     if (!state) return null;

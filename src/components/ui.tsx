@@ -3,10 +3,15 @@
 import Link from "next/link";
 import type { ApprovalStatus, MatchStatus } from "@/lib/types";
 import { STATUS_LABELS } from "@/lib/types";
+import type { Division } from "@/lib/types";
+import { ParticipantDivisionSelector } from "./ParticipantDivisionSelector";
 
 export function StatusBadge({ status, approvalStatus }: { status: MatchStatus; approvalStatus?: ApprovalStatus }) {
   if (approvalStatus === "pending") {
     return <span className="chip bg-amber-100 text-amber-900">承認待ち</span>;
+  }
+  if (approvalStatus === "rejected") {
+    return <span className="chip bg-red-100 text-red-800">修正依頼</span>;
   }
   const style =
     status === "done"
@@ -31,12 +36,14 @@ export function PageShell({
   children,
   backHref = "/",
   action,
+  divisionSelection,
 }: {
   title: string;
   subtitle?: string;
   children: React.ReactNode;
   backHref?: string;
   action?: React.ReactNode;
+  divisionSelection?: { tournamentId: string; divisions: Division[]; divisionId: string };
 }) {
   return (
     <div className="min-h-screen pb-24">
@@ -59,7 +66,10 @@ export function PageShell({
           {action}
         </div>
       </header>
-      <main className="mx-auto max-w-3xl px-4 py-4">{children}</main>
+      <main className="mx-auto max-w-3xl px-4 py-4">
+        {divisionSelection && <ParticipantDivisionSelector {...divisionSelection} />}
+        {children}
+      </main>
     </div>
   );
 }

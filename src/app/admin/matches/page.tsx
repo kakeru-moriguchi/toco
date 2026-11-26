@@ -10,7 +10,7 @@ import { divisionGameLabels } from "@/lib/divisionFormat";
 import { matchGroupName, sideName, sortMatches } from "@/lib/view";
 
 export default function AdminMatchesPage() {
-  const { state, loading, refresh } = useTournamentState();
+  const { state, loading, refresh } = useTournamentState("admin");
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "error" } | null>(null);
   const [filter, setFilter] = useState<string>("all");

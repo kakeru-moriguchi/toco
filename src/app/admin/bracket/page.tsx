@@ -15,10 +15,11 @@ import { TIER_FORMAT_LABELS } from "@/lib/types";
 import { divisionGameLabels, divisionTiers } from "@/lib/divisionFormat";
 
 export default function AdminBracketPage() {
-  const { state, loading, refresh } = useTournamentState();
+  const { state, loading, refresh } = useTournamentState("admin");
   const [busy, setBusy] = useState(false);
   const [startTime, setStartTime] = useState("");
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "error" } | null>(null);
+  const [swapSlot, setSwapSlot] = useState<{ id: string; slot: "a" | "b" } | null>(null);
 
   const notify = (msg: string, tone: "ok" | "error" = "ok") => {
     setToast({ msg, tone });
@@ -252,6 +253,37 @@ export default function AdminBracketPage() {
                           callMatch({ action: "status", id: m.id, status }, "状態を変更しました")
                         }
                       />
+                      {m.stage === "bracket" && m.status === "pending" && (
+                        <div className="grid grid-cols-2 gap-2">
+                          {(["a", "b"] as const).map((slot) => {
+                            const teamId = slot === "a" ? m.team_a_id : m.team_b_id;
+                            if (!teamId) return <span key={slot} />;
+                            const selected = swapSlot?.id === m.id && swapSlot.slot === slot;
+                            return (
+                              <button
+                                key={slot}
+                                className={selected ? "btn-primary btn-sm" : "btn-ghost btn-sm"}
+                                disabled={busy}
+                                onClick={async () => {
+                                  if (!swapSlot) {
+                                    setSwapSlot({ id: m.id, slot });
+                                    notify("入れ替え先のチーム枠を選んでください");
+                                    return;
+                                  }
+                                  if (swapSlot.id === m.id && swapSlot.slot === slot) {
+                                    setSwapSlot(null);
+                                    return;
+                                  }
+                                  await callMatch({ action: "swap_bracket_slots", id: swapSlot.id, slot: swapSlot.slot, target_id: m.id, target_slot: slot }, "組み合わせを入れ替えました");
+                                  setSwapSlot(null);
+                                }}
+                              >
+                                {selected ? "選択中（解除）" : `${slot === "a" ? "上" : "下"}枠を入替`}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      )}
                     </li>
                   ))}
                 </ul>

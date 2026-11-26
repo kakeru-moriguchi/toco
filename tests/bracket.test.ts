@@ -121,6 +121,9 @@ test("bracket recomputation advances winners and clears stale final results", ()
       submitted_at: null,
       approved_by_team_id: null,
       approved_at: null,
+      rejection_reason: null,
+      rejected_by_team_id: null,
+      rejected_at: null,
     },
   }]);
 });

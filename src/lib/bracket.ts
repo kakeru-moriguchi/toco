@@ -353,6 +353,9 @@ export type BracketPatch = {
     submitted_at?: null;
     approved_by_team_id?: null;
     approved_at?: null;
+    rejection_reason?: null;
+    rejected_by_team_id?: null;
+    rejected_at?: null;
   };
 };
 
@@ -403,7 +406,7 @@ export function resolveBracketProgress(matches: Match[]): BracketPatch[] {
     // 出場チームが入れ替わった試合に古い結果が残っていたら取り消す
     if (
       (patch.team_a_id !== undefined || patch.team_b_id !== undefined) &&
-      (m.status === "done" || m.approval_status === "pending")
+      (m.status === "done" || m.approval_status === "pending" || m.approval_status === "rejected")
     ) {
       patch.sets = [];
       patch.score_a = null;
@@ -419,6 +422,9 @@ export function resolveBracketProgress(matches: Match[]): BracketPatch[] {
       patch.submitted_at = null;
       patch.approved_by_team_id = null;
       patch.approved_at = null;
+      patch.rejection_reason = null;
+      patch.rejected_by_team_id = null;
+      patch.rejected_at = null;
       m.sets = [];
       m.score_a = null;
       m.score_b = null;
@@ -433,6 +439,9 @@ export function resolveBracketProgress(matches: Match[]): BracketPatch[] {
       m.submitted_at = null;
       m.approved_by_team_id = null;
       m.approved_at = null;
+      m.rejection_reason = null;
+      m.rejected_by_team_id = null;
+      m.rejected_at = null;
     }
 
     if (Object.keys(patch).length > 0) patches.push({ id: m.id, patch });

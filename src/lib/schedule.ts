@@ -60,7 +60,7 @@ export type ScheduleOptions = {
   /** コート名の配列。例: ['1','2','3','4'] */
   courts: string[];
   /** 他部門など、すでに使用が確定しているコート枠。 */
-  reserved?: { court: string; scheduledAt: string }[];
+  reserved?: { court: string; scheduledAt: string; durationMinutes?: number | null; teamAId?: string | null; teamBId?: string | null }[];
 };
 
 export type ScheduleAssignment = {
@@ -68,6 +68,7 @@ export type ScheduleAssignment = {
   matchNo: number;
   court: string;
   scheduledAt: string;
+  durationMinutes: number;
 };
 
 export type CourtSlot = {
@@ -75,6 +76,9 @@ export type CourtSlot = {
   division_id: string;
   court: string;
   scheduled_at: string;
+  duration_minutes?: number | null;
+  team_a_id?: string | null;
+  team_b_id?: string | null;
 };
 
 /** 9:00 と 09:00 を同じ枠として扱う。 */
@@ -85,15 +89,23 @@ export function normalizeScheduledAt(value: string): string {
 
 /** watchedIds の更新によって発生する、大会全体の同時刻・同コート重複を返す。 */
 export function findCourtConflict(rows: CourtSlot[], watchedIds: Set<string>) {
-  const occupied = new Map<string, CourtSlot>();
-  for (const row of rows) {
-    if (!row.court || !row.scheduled_at) continue;
-    const key = `${normalizeScheduledAt(row.scheduled_at)}\u0000${row.court}`;
-    const existing = occupied.get(key);
-    if (existing && (watchedIds.has(existing.id) || watchedIds.has(row.id))) {
-      return { first: existing, second: row };
+  for (let i = 0; i < rows.length; i++) {
+    const first = rows[i];
+    if (!first.scheduled_at) continue;
+    const firstStart = parseTime(first.scheduled_at);
+    const firstEnd = firstStart + Math.max(1, first.duration_minutes ?? 1);
+    for (let j = i + 1; j < rows.length; j++) {
+      const second = rows[j];
+      if (!second.scheduled_at) continue;
+      if (!watchedIds.has(first.id) && !watchedIds.has(second.id)) continue;
+      const secondStart = parseTime(second.scheduled_at);
+      const secondEnd = secondStart + Math.max(1, second.duration_minutes ?? 1);
+      const sameCourt = Boolean(first.court && first.court === second.court);
+      const sameTeam = [first.team_a_id, first.team_b_id]
+        .filter(Boolean)
+        .some((teamId) => teamId === second.team_a_id || teamId === second.team_b_id);
+      if ((sameCourt || sameTeam) && firstStart < secondEnd && secondStart < firstEnd) return { first, second };
     }
-    occupied.set(key, row);
   }
   return null;
 }
@@ -129,12 +141,23 @@ export function assignSchedule(
   const result: ScheduleAssignment[] = [];
 
   for (const reservation of options.reserved ?? []) {
-    const delta = parseTime(reservation.scheduledAt) - start;
-    if (delta < 0 || delta % step !== 0 || !courts.includes(reservation.court)) continue;
-    const slot = delta / step;
-    const used = usedCourts.get(slot) ?? new Set<string>();
-    used.add(reservation.court);
-    usedCourts.set(slot, used);
+    const reservationStart = parseTime(reservation.scheduledAt);
+    const reservationEnd = reservationStart + Math.max(1, reservation.durationMinutes ?? step);
+    for (let slot = 0; slot <= matches.length + courts.length + 5; slot++) {
+      const candidateStart = start + slot * step;
+      const candidateEnd = candidateStart + step;
+      if (candidateStart < reservationEnd && reservationStart < candidateEnd) {
+        if (courts.includes(reservation.court)) {
+          const used = usedCourts.get(slot) ?? new Set<string>();
+          used.add(reservation.court);
+          usedCourts.set(slot, used);
+        }
+        const teams = busy.get(slot) ?? new Set<string>();
+        if (reservation.teamAId) teams.add(reservation.teamAId);
+        if (reservation.teamBId) teams.add(reservation.teamBId);
+        busy.set(slot, teams);
+      }
+    }
   }
 
   matches.forEach((m, i) => {
@@ -157,6 +180,7 @@ export function assignSchedule(
           matchNo: i + 1,
           court,
           scheduledAt: formatTime(start + slot * step),
+          durationMinutes: step,
         });
         break;
       }
@@ -168,6 +192,7 @@ export function assignSchedule(
           matchNo: i + 1,
           court: courts[0],
           scheduledAt: formatTime(start + slot * step),
+          durationMinutes: step,
         });
         break;
       }

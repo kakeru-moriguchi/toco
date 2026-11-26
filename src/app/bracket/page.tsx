@@ -65,6 +65,7 @@ export default function BracketPage() {
       title="決勝ラウンド"
       subtitle="予選の順位ごとに分かれています"
       action={<LiveDot updatedAt={updatedAt} />}
+      divisionSelection={state ? { tournamentId: state.tournament.id, divisions: state.divisions, divisionId: state.division.id } : undefined}
     >
       {loading && !state && <LoadingBlock />}
       {error && <ErrorBlock message={error} onRetry={refresh} />}

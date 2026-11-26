@@ -15,6 +15,7 @@ import {
   type TierFormat,
   type TierMode,
 } from "@/lib/types";
+import { divisionFinalsMinutes } from "@/lib/divisionFormat";
 
 const ALL_TIEBREAKERS: Tiebreaker[] = [
   "wins",
@@ -26,11 +27,12 @@ const ALL_TIEBREAKERS: Tiebreaker[] = [
 ];
 
 export default function AdminTournamentPage() {
-  const { state, loading, refresh } = useTournamentState();
+  const { state, loading, refresh } = useTournamentState("admin");
   const [form, setForm] = useState<Record<string, unknown> | null>(null);
   const [courts, setCourts] = useState("");
   const [tiebreakers, setTiebreakers] = useState<Tiebreaker[]>([]);
   const [tiers, setTiers] = useState<BracketTier[]>([]);
+  const [scheduleBlocks, setScheduleBlocks] = useState("");
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "error" } | null>(null);
   const [saving, setSaving] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
@@ -38,10 +40,11 @@ export default function AdminTournamentPage() {
   const [resetting, setResetting] = useState(false);
 
   useEffect(() => {
-    if (!state || form?._tournament_id === state.tournament.id) return;
+    if (!state || (form?._tournament_id === state.tournament.id && form?._division_id === state.division.id)) return;
     const t = state.tournament;
     setForm({
       _tournament_id: t.id,
+      _division_id: state.division.id,
       name: t.name,
       event_date: t.event_date ?? "",
       venue: t.venue,
@@ -51,12 +54,15 @@ export default function AdminTournamentPage() {
       point_target: t.point_target,
       sets_to_win: t.sets_to_win,
       start_time: t.start_time,
-      minutes_per_match: t.minutes_per_match,
+      finals_start_time: state.division.finals_start_time ?? t.start_time,
+      qualifying_minutes_per_match: t.minutes_per_match,
+      finals_minutes_per_match: divisionFinalsMinutes(state.division, t),
       phase: t.phase,
     });
     setCourts(t.courts.join(", "));
     setTiebreakers(t.tiebreakers);
     setTiers(t.bracket_tiers);
+    setScheduleBlocks(t.schedule_blocks.map((block) => `${block.start_time}-${block.end_time} ${block.label}`).join("\n"));
   }, [state, form]);
 
   const set = (key: string, value: unknown) => setForm((f) => ({ ...f, [key]: value }));
@@ -117,13 +123,20 @@ export default function AdminTournamentPage() {
     }
     setSaving(true);
     try {
+      const parsedBlocks = scheduleBlocks.split("\n").map((line) => line.trim()).filter(Boolean).map((line) => {
+        const match = /^(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})\s+(.+)$/.exec(line);
+        if (!match) throw new Error(`休憩・予約枠「${line}」は 13:00-13:30 レクリエーション の形式で入力してください。`);
+        return { start_time: match[1], end_time: match[2], label: match[3] };
+      });
       await adminPatch("/api/admin/tournament", {
         ...form,
         _tournament_id: undefined,
+        _division_id: undefined,
         event_date: form.event_date || null,
         courts: courts.split(/[,、\s]+/).map((c) => c.trim()).filter(Boolean),
         tiebreakers,
         bracket_tiers: tiers,
+        schedule_blocks: parsedBlocks,
       });
       await refresh();
       setToast({ msg: "保存しました", tone: "ok" });
@@ -167,7 +180,7 @@ export default function AdminTournamentPage() {
   };
 
   return (
-    <AdminShell title="大会情報" description="参加者のトップページに表示される内容と、大会全体の設定です。">
+    <AdminShell title="大会情報" description="基本情報は大会共通、競技形式は現在選択中の部門だけに保存されます。">
       {(loading && !state) || !form ? (
         <LoadingBlock />
       ) : (
@@ -204,8 +217,8 @@ export default function AdminTournamentPage() {
           </section>
 
           <section className="card space-y-3 p-4">
-            <h2 className="text-sm font-black text-court-800">大会形式</h2>
-            <div className="grid gap-3 sm:grid-cols-3">
+            <h2 className="text-sm font-black text-court-800">{state?.division.name}の大会形式</h2>
+            <div className="grid gap-3 sm:grid-cols-4">
               <div>
                 <label className="label" htmlFor="lc">リーグ数</label>
                 <input id="lc" type="number" min={1} max={26} className="field" value={Number(form.league_count)} onChange={(e) => set("league_count", Number(e.target.value))} />
@@ -398,13 +411,26 @@ export default function AdminTournamentPage() {
                 <input id="st" className="field" placeholder="09:00" value={String(form.start_time ?? "")} onChange={(e) => set("start_time", e.target.value)} />
               </div>
               <div>
-                <label className="label" htmlFor="mpm">1試合の持ち時間（分）</label>
-                <input id="mpm" type="number" min={5} max={180} className="field" value={Number(form.minutes_per_match)} onChange={(e) => set("minutes_per_match", Number(e.target.value))} />
+                <label className="label" htmlFor="fst">決勝開始時刻</label>
+                <input id="fst" className="field" placeholder="13:30" value={String(form.finals_start_time ?? "")} onChange={(e) => set("finals_start_time", e.target.value)} />
+              </div>
+              <div>
+                <label className="label" htmlFor="qmpm">予選1試合（分）</label>
+                <input id="qmpm" type="number" min={5} max={180} className="field" value={Number(form.qualifying_minutes_per_match)} onChange={(e) => set("qualifying_minutes_per_match", Number(e.target.value))} />
+              </div>
+              <div>
+                <label className="label" htmlFor="fmpm">決勝1試合（分）</label>
+                <input id="fmpm" type="number" min={5} max={180} className="field" value={Number(form.finals_minutes_per_match)} onChange={(e) => set("finals_minutes_per_match", Number(e.target.value))} />
               </div>
               <div>
                 <label className="label" htmlFor="courts">コート番号（カンマ区切り）</label>
                 <input id="courts" className="field" placeholder="1, 2, 3, 4" value={courts} onChange={(e) => setCourts(e.target.value)} />
               </div>
+            </div>
+            <div>
+              <label className="label" htmlFor="schedule-blocks">大会全体の休憩・予約枠（1行に1件）</label>
+              <textarea id="schedule-blocks" className="field min-h-24 py-2 font-mono text-sm" placeholder={"13:00-13:30 レクリエーション\n16:45-17:30 予備最終枠"} value={scheduleBlocks} onChange={(event) => setScheduleBlocks(event.target.value)} />
+              <p className="mt-1 text-xs text-ink-500">全コートを使わない時間として、自動割り当てから除外します。</p>
             </div>
             <p className="text-xs text-ink-500">
               ここを変更したあと「進行表」ページの自動割り当てを実行すると、時間とコートが割り振り直されます。
