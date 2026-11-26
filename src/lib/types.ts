@@ -4,6 +4,7 @@ export type Phase = "setup" | "league" | "bracket" | "finished";
 export type SetScore = { a: number; b: number };
 export type Stage = "league" | "bracket";
 export type MatchStatus = "pending" | "in_progress" | "done";
+export type ApprovalStatus = "none" | "pending" | "approved" | "rejected";
 export type Slot = "a" | "b";
 
 /** 順位決定の基準。並び順を変えるだけで同率時のルールを差し替えられる。 */
@@ -116,6 +117,13 @@ export type Tournament = {
   archived_at: string | null;
   created_at: string;
   updated_at: string;
+  schedule_blocks: ScheduleBlock[];
+};
+
+export type ScheduleBlock = {
+  label: string;
+  start_time: string;
+  end_time: string;
 };
 
 export type TournamentSummary = Pick<
@@ -129,8 +137,17 @@ export type Division = {
   name: string;
   sort_order: number;
   is_active: boolean;
+  is_public: boolean;
   /** null のときは大会共通設定を使う */
   league_count: number | null;
+  teams_per_league?: number | null;
+  point_target?: number | null;
+  sets_to_win?: number | null;
+  start_time?: string | null;
+  finals_start_time?: string | null;
+  qualifying_minutes_per_match?: number | null;
+  finals_minutes_per_match?: number | null;
+  tiebreakers?: Tiebreaker[] | null;
   /** null のときは大会共通設定を使う */
   courts: string[] | null;
   /** null のときは大会共通設定を使う */
@@ -178,6 +195,7 @@ export type Match = {
   match_no: number;
   court: string;
   scheduled_at: string;
+  duration_minutes?: number | null;
   status: MatchStatus;
   team_a_id: string | null;
   team_b_id: string | null;
@@ -195,6 +213,18 @@ export type Match = {
   loser_next_slot: Slot | null;
   reported_at: string | null;
   reported_by: string | null;
+  approval_status: ApprovalStatus;
+  pending_sets: SetScore[];
+  pending_score_a: number | null;
+  pending_score_b: number | null;
+  pending_winner_team_id: string | null;
+  submitted_by_team_id: string | null;
+  submitted_at: string | null;
+  approved_by_team_id: string | null;
+  approved_at: string | null;
+  rejection_reason?: string | null;
+  rejected_by_team_id?: string | null;
+  rejected_at?: string | null;
 };
 
 /** 参加者画面が使う「大会の全状態」。1回の取得でどの画面も描ける。 */

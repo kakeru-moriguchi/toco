@@ -5,9 +5,9 @@ import { selectedDivisionId } from "./divisionSelection";
 
 function adminHeaders() {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  const tournamentId = selectedTournamentId();
+  const tournamentId = selectedTournamentId("admin");
   if (tournamentId) headers["X-Tournament-Id"] = tournamentId;
-  const divisionId = selectedDivisionId(tournamentId);
+  const divisionId = selectedDivisionId(tournamentId, "admin");
   if (divisionId) headers["X-Division-Id"] = divisionId;
   return headers;
 }

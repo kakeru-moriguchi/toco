@@ -25,7 +25,7 @@ export default function StandingsPage() {
   }, [state]);
 
   return (
-    <PageShell title="リーグ表・順位" subtitle="結果が入ると自動で再計算されます" action={<LiveDot updatedAt={updatedAt} />}>
+    <PageShell title="リーグ表・順位" subtitle="結果が入ると自動で再計算されます" action={<LiveDot updatedAt={updatedAt} />} divisionSelection={state ? { tournamentId: state.tournament.id, divisions: state.divisions, divisionId: state.division.id } : undefined}>
       {loading && !state && <LoadingBlock />}
       {error && <ErrorBlock message={error} onRetry={refresh} />}
       {state && qualifyingLeagues(state).length === 0 && (

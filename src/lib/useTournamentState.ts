@@ -6,9 +6,10 @@ import type { TournamentState } from "./types";
 import {
   selectedTournamentId,
   selectTournament,
-  TOURNAMENT_CHANGE_EVENT,
+  tournamentChangeEvent,
+  type SelectionScope,
 } from "./tournamentSelection";
-import { DIVISION_CHANGE_EVENT, selectedDivisionId, selectDivision } from "./divisionSelection";
+import { divisionChangeEvent, selectedDivisionId, selectDivision } from "./divisionSelection";
 
 /**
  * 大会の全状態を取得し、他の端末での更新を自動で反映するフック。
@@ -18,7 +19,7 @@ import { DIVISION_CHANGE_EVENT, selectedDivisionId, selectDivision } from "./div
  * ・スマホでアプリに戻ってきた（画面復帰）タイミングでも再取得
  * どの画面もこのフックだけ見ていれば最新になる。
  */
-export function useTournamentState() {
+export function useTournamentState(scope: SelectionScope = "participant") {
   const [state, setState] = useState<TournamentState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -30,24 +31,22 @@ export function useTournamentState() {
     inFlight.current = true;
     try {
       const urlTournamentId = new URLSearchParams(window.location.search).get("tournament_id");
-      if (urlTournamentId && urlTournamentId !== selectedTournamentId()) selectTournament(urlTournamentId);
-      const tournamentId = urlTournamentId || selectedTournamentId();
+      if (urlTournamentId && urlTournamentId !== selectedTournamentId(scope)) selectTournament(urlTournamentId, scope);
+      const tournamentId = urlTournamentId || selectedTournamentId(scope);
       const urlDivisionId = new URLSearchParams(window.location.search).get("division_id");
-      if (tournamentId && urlDivisionId && urlDivisionId !== selectedDivisionId(tournamentId)) {
-        selectDivision(tournamentId, urlDivisionId);
-      }
-      const divisionId = urlDivisionId || selectedDivisionId(tournamentId);
+      const divisionId = urlDivisionId || selectedDivisionId(tournamentId, scope);
       const params = new URLSearchParams();
       if (tournamentId) params.set("tournament_id", tournamentId);
       if (divisionId) params.set("division_id", divisionId);
+      if (scope === "admin") params.set("audience", "admin");
       const query = params.size > 0 ? `?${params.toString()}` : "";
       const res = await fetch(`/api/state${query}`, { cache: "no-store" });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error ?? "データを取得できませんでした。");
       setState(json as TournamentState);
-      if (!tournamentId && json?.tournament?.id) selectTournament(json.tournament.id);
-      if (json?.tournament?.id && !divisionId && json?.division?.id) {
-        selectDivision(json.tournament.id, json.division.id);
+      if (!tournamentId && json?.tournament?.id) selectTournament(json.tournament.id, scope);
+      if (json?.tournament?.id && json?.division?.id && selectedDivisionId(json.tournament.id, scope) !== json.division.id) {
+        selectDivision(json.tournament.id, json.division.id, scope);
       }
       setUpdatedAt(new Date());
       setError(null);
@@ -57,7 +56,7 @@ export function useTournamentState() {
       inFlight.current = false;
       setLoading(false);
     }
-  }, []);
+  }, [scope]);
 
   useEffect(() => {
     refresh();
@@ -66,7 +65,7 @@ export function useTournamentState() {
     let channel: ReturnType<NonNullable<typeof client>["channel"]> | null = null;
     if (client) {
       channel = client
-        .channel("tournament-live")
+        .channel(`tournament-live-${scope}`)
         .on("postgres_changes", { event: "*", schema: "public", table: "matches" }, () => refresh())
         .on("postgres_changes", { event: "*", schema: "public", table: "teams" }, () => refresh())
         .on("postgres_changes", { event: "*", schema: "public", table: "leagues" }, () => refresh())
@@ -81,18 +80,20 @@ export function useTournamentState() {
     };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
-    window.addEventListener(TOURNAMENT_CHANGE_EVENT, refresh);
-    window.addEventListener(DIVISION_CHANGE_EVENT, refresh);
+    const tournamentEvent = tournamentChangeEvent(scope);
+    const divisionEvent = divisionChangeEvent(scope);
+    window.addEventListener(tournamentEvent, refresh);
+    window.addEventListener(divisionEvent, refresh);
 
     return () => {
       clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
-      window.removeEventListener(TOURNAMENT_CHANGE_EVENT, refresh);
-      window.removeEventListener(DIVISION_CHANGE_EVENT, refresh);
+      window.removeEventListener(tournamentEvent, refresh);
+      window.removeEventListener(divisionEvent, refresh);
       if (client && channel) client.removeChannel(channel);
     };
-  }, [refresh]);
+  }, [refresh, scope]);
 
   return { state, error, loading, refresh, updatedAt, setState };
 }

@@ -60,7 +60,7 @@ function MatchRow({
             <span className="chip bg-ball-500 text-court-950">次の試合</span>
           )}
           <span className="text-ink-500">{matchGroupName(match, state)}</span>
-          <StatusBadge status={match.status} />
+          <StatusBadge status={match.status} approvalStatus={match.approval_status} />
         </div>
 
         <div>
@@ -170,6 +170,7 @@ export default function SchedulePage() {
       title="進行表"
       subtitle="コートごとの試合の順番"
       action={<LiveDot updatedAt={updatedAt} />}
+      divisionSelection={state ? { tournamentId: state.tournament.id, divisions: state.divisions, divisionId: state.division.id } : undefined}
     >
       {loading && !state && <LoadingBlock />}
       {error && <ErrorBlock message={error} onRetry={refresh} />}

@@ -10,7 +10,7 @@ import { divisionGameLabels } from "@/lib/divisionFormat";
 import { matchGroupName, sideName, sortMatches } from "@/lib/view";
 
 export default function AdminMatchesPage() {
-  const { state, loading, refresh } = useTournamentState();
+  const { state, loading, refresh } = useTournamentState("admin");
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<{ msg: string; tone: "ok" | "error" } | null>(null);
   const [filter, setFilter] = useState<string>("all");
@@ -98,7 +98,7 @@ export default function AdminMatchesPage() {
                   {m.court && <span>コート{m.court}</span>}
                   <span className="text-ink-500">{matchGroupName(m, state)}</span>
                   <span className="ml-auto">
-                    <StatusBadge status={m.status} />
+                    <StatusBadge status={m.status} approvalStatus={m.approval_status} />
                   </span>
                 </div>
                 <ResultEditor

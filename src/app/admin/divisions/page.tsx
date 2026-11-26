@@ -13,7 +13,7 @@ import { DivisionFormatEditor } from "@/components/DivisionFormatEditor";
 
 export default function AdminDivisionsPage() {
   const router = useRouter();
-  const { state, loading, refresh, updatedAt } = useTournamentState();
+  const { state, loading, refresh, updatedAt } = useTournamentState("admin");
   const [name, setName] = useState("");
   const [editing, setEditing] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -68,9 +68,9 @@ export default function AdminDivisionsPage() {
                 onClick={async () => {
                   const result = await run({ action: "add", name }, "部門を追加しました");
                   const division = result?.division as { id?: string } | undefined;
-                  const tournamentId = selectedTournamentId();
+                  const tournamentId = selectedTournamentId("admin");
                   if (division?.id && tournamentId) {
-                    selectDivision(tournamentId, division.id);
+                    selectDivision(tournamentId, division.id, "admin");
                     setName("");
                     router.push("/admin/teams");
                   }
@@ -98,13 +98,23 @@ export default function AdminDivisionsPage() {
                   <span className="chip bg-court-50 text-court-800">{divisionLeagueCount(division, state.tournament)}リーグ</span>
                   <span className="chip bg-court-50 text-court-800">コート {divisionCourts(division, state.tournament).join("・")}</span>
                   {!division.finals_enabled && <span className="chip bg-court-800 text-white">決勝なし</span>}
+                  <span className={`chip ${division.is_public ? "bg-green-100 text-green-800" : "bg-slate-100 text-slate-700"}`}>
+                    {division.is_public ? "参加者へ公開中" : "非公開"}
+                  </span>
                   {!division.is_active && <span className="chip bg-ball-100 text-ink-700">無効</span>}
                 </div>
                 <div className="mt-3 flex flex-wrap justify-end gap-2">
                   {division.is_active && (
                     <>
                       <button className="btn-ghost btn-sm" disabled={busy || draft.trim() === division.name} onClick={() => run({ action: "rename", id: division.id, name: draft }, "部門名を変更しました")}>名前を保存</button>
-                      {!selected && <button className="btn-primary btn-sm" onClick={() => { selectDivision(state.tournament.id, division.id); router.push("/admin"); }}>この部門を管理</button>}
+                      {!selected && <button className="btn-primary btn-sm" onClick={() => { selectDivision(state.tournament.id, division.id, "admin"); router.push("/admin"); }}>この部門を管理</button>}
+                      <button
+                        className="btn-ghost btn-sm"
+                        disabled={busy}
+                        onClick={() => run({ action: "set_public", id: division.id, is_public: !division.is_public }, division.is_public ? "参加者画面で非公開にしました" : "参加者画面へ公開しました")}
+                      >
+                        {division.is_public ? "非公開にする" : "公開する"}
+                      </button>
                       <button
                         className="btn-danger btn-sm"
                         disabled={busy}
@@ -113,7 +123,7 @@ export default function AdminDivisionsPage() {
                           run({ action: "deactivate", id: division.id }, "部門を無効化しました").then((result) => {
                             if (result && selected) {
                               const next = state.divisions.find((item) => item.id !== division.id && item.is_active);
-                              if (next) selectDivision(state.tournament.id, next.id);
+                              if (next) selectDivision(state.tournament.id, next.id, "admin");
                             }
                           });
                         }}

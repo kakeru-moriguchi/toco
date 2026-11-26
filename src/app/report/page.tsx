@@ -26,7 +26,7 @@ export default function ReportListPage() {
   }, [state, keyword, showDone]);
 
   return (
-    <PageShell title="試合結果を入力する" subtitle="自分のチームの試合を選んでください">
+    <PageShell title="試合結果を入力する" subtitle="自分のチームの試合を選んでください" divisionSelection={state ? { tournamentId: state.tournament.id, divisions: state.divisions, divisionId: state.division.id } : undefined}>
       <div className="card mb-4 space-y-3 p-4">
         <div>
           <label className="label" htmlFor="team-search">
@@ -48,7 +48,7 @@ export default function ReportListPage() {
             checked={showDone}
             onChange={(e) => setShowDone(e.target.checked)}
           />
-          登録済みの試合も表示する（入力し直せます）
+          確定済みの試合も表示する
         </label>
       </div>
 
@@ -74,7 +74,13 @@ export default function ReportListPage() {
                       </span>
                     )}
                     <span className="text-ink-500">{matchGroupName(m, state)}</span>
-                    <StatusBadge status={m.status} />
+                    {m.approval_status === "pending" ? (
+                      <span className="chip bg-amber-100 text-amber-900">承認待ち</span>
+                    ) : m.approval_status === "rejected" ? (
+                      <span className="chip bg-red-100 text-red-800">修正依頼</span>
+                    ) : (
+                      <StatusBadge status={m.status} approvalStatus={m.approval_status} />
+                    )}
                   </div>
                   <p className="text-[15px] font-bold leading-snug">
                     {sideName(m, "a", state.teams)}
@@ -91,8 +97,15 @@ export default function ReportListPage() {
                       )}
                     </p>
                   )}
+                  {m.approval_status === "pending" && (
+                    <p className="mt-0.5 text-sm font-black text-amber-800">
+                      敗者側の承認を待っています
+                    </p>
+                  )}
                 </div>
-                <span className="btn-accent btn-sm shrink-0">入力</span>
+                <span className="btn-accent btn-sm shrink-0">
+                  {m.approval_status === "pending" ? "承認" : m.approval_status === "rejected" ? "修正" : m.status === "done" ? "確認" : "入力"}
+                </span>
               </Link>
             </li>
           ))}

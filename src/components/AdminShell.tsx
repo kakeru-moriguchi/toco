@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { selectTournament, selectedTournamentId } from "@/lib/tournamentSelection";
-import { DIVISION_CHANGE_EVENT, selectDivision, selectedDivisionId } from "@/lib/divisionSelection";
+import { ADMIN_DIVISION_CHANGE_EVENT, selectDivision, selectedDivisionId } from "@/lib/divisionSelection";
 import type { Division, TournamentSummary } from "@/lib/types";
 
 const NAV = [
@@ -43,10 +43,10 @@ export function AdminShell({
     if (!res.ok) throw new Error(json?.error ?? "部門一覧を取得できませんでした。");
     const active = ((json.divisions ?? []) as Division[]).filter((item) => item.is_active);
     setDivisions(active);
-    const selected = selectedDivisionId(tournamentId);
+    const selected = selectedDivisionId(tournamentId, "admin");
     const next = active.find((item) => item.id === selected) ?? active[0];
     if (next) {
-      if (selected !== next.id) selectDivision(tournamentId, next.id);
+      if (selected !== next.id) selectDivision(tournamentId, next.id, "admin");
       setActiveDivisionId(next.id);
     } else {
       setActiveDivisionId("");
@@ -54,7 +54,7 @@ export function AdminShell({
   }, []);
 
   useEffect(() => {
-    setActiveTournamentId(selectedTournamentId() ?? "");
+    setActiveTournamentId(selectedTournamentId("admin") ?? "");
     fetch("/api/admin/tournaments", { cache: "no-store" })
       .then(async (res) => {
         const json = await res.json();
@@ -64,9 +64,9 @@ export function AdminShell({
       .then((items) => {
         const active = items.filter((item) => !item.archived_at);
         setTournaments(active);
-        const selected = selectedTournamentId();
+        const selected = selectedTournamentId("admin");
         if ((!selected || !active.some((item) => item.id === selected)) && active[0]) {
-          selectTournament(active[0].id);
+          selectTournament(active[0].id, "admin");
           setActiveTournamentId(active[0].id);
         }
       })
@@ -82,11 +82,11 @@ export function AdminShell({
   useEffect(() => {
     const onDivisionChange = () => {
       if (!activeTournamentId) return;
-      setActiveDivisionId(selectedDivisionId(activeTournamentId) ?? "");
+      setActiveDivisionId(selectedDivisionId(activeTournamentId, "admin") ?? "");
       loadDivisions(activeTournamentId).catch(() => setDivisions([]));
     };
-    window.addEventListener(DIVISION_CHANGE_EVENT, onDivisionChange);
-    return () => window.removeEventListener(DIVISION_CHANGE_EVENT, onDivisionChange);
+    window.addEventListener(ADMIN_DIVISION_CHANGE_EVENT, onDivisionChange);
+    return () => window.removeEventListener(ADMIN_DIVISION_CHANGE_EVENT, onDivisionChange);
   }, [activeTournamentId, loadDivisions]);
 
   const logout = async () => {
@@ -102,7 +102,7 @@ export function AdminShell({
           <span className="rounded bg-ball-500 px-2 py-0.5 text-xs font-black text-court-950">管理</span>
           <span className="text-sm font-bold">主催者メニュー</span>
           <div className="ml-auto flex items-center gap-2">
-            <Link href={activeTournamentId ? `/?tournament_id=${activeTournamentId}${activeDivisionId ? `&division_id=${activeDivisionId}` : ""}` : "/"} className="flex min-h-10 items-center rounded-lg px-3 text-xs font-bold text-court-100 hover:bg-white/10">
+            <Link href={activeTournamentId ? `/?tournament_id=${activeTournamentId}` : "/"} className="flex min-h-10 items-center rounded-lg px-3 text-xs font-bold text-court-100 hover:bg-white/10">
               参加者画面
             </Link>
             <button onClick={logout} className="min-h-10 rounded-lg px-3 text-xs font-bold text-court-100 hover:bg-white/10">
@@ -139,7 +139,7 @@ export function AdminShell({
               className="field"
               value={activeTournamentId}
               onChange={(e) => {
-                selectTournament(e.target.value);
+                selectTournament(e.target.value, "admin");
                 setActiveTournamentId(e.target.value);
                 setActiveDivisionId("");
                 router.refresh();
@@ -159,7 +159,7 @@ export function AdminShell({
               className="field"
               value={activeDivisionId}
               onChange={(e) => {
-                selectDivision(activeTournamentId, e.target.value);
+                selectDivision(activeTournamentId, e.target.value, "admin");
                 setActiveDivisionId(e.target.value);
                 router.refresh();
               }}

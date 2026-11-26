@@ -24,6 +24,7 @@ create table if not exists tournaments (
   -- 進行表の自動割り当て設定
   start_time         text        not null default '09:00',
   minutes_per_match  int         not null default 20,
+  schedule_blocks    jsonb       not null default '[]'::jsonb,
   courts             text[]      not null default array['1','2','3','4'],
   -- 順位決定の優先順位。順位計算ロジックは独立させてあるので、
   -- ここの並びを変えるだけで同率時のルールを差し替えられる。
@@ -56,6 +57,15 @@ create table if not exists divisions (
   name          text not null,
   sort_order    int not null default 0,
   is_active     boolean not null default true,
+  is_public     boolean not null default true,
+  teams_per_league int check (teams_per_league is null or teams_per_league between 2 and 20),
+  point_target int check (point_target is null or point_target between 1 and 99),
+  sets_to_win int check (sets_to_win is null or sets_to_win between 1 and 5),
+  start_time text,
+  finals_start_time text,
+  qualifying_minutes_per_match int check (qualifying_minutes_per_match is null or qualifying_minutes_per_match between 5 and 180),
+  finals_minutes_per_match int check (finals_minutes_per_match is null or finals_minutes_per_match between 5 and 180),
+  tiebreakers jsonb,
   -- 部門別大会形式。null は tournaments の共通設定を継承する。
   league_count  int check (league_count is null or league_count between 1 and 26),
   courts        text[],
@@ -128,6 +138,7 @@ create table if not exists matches (
   match_no      int  not null default 0,   -- 試合番号（進行順）
   court         text not null default '',
   scheduled_at  text not null default '',  -- 'HH:MM' 形式の予定時刻
+  duration_minutes int check (duration_minutes is null or duration_minutes between 5 and 180),
   status        text not null default 'pending'
                   check (status in ('pending','in_progress','done')),
 
@@ -153,6 +164,21 @@ create table if not exists matches (
 
   reported_at   timestamptz,
   reported_by   text,                        -- 'team' / 'admin'
+
+  -- 参加者入力は承認されるまで正式結果へ反映しない
+  approval_status         text not null default 'none'
+                            check (approval_status in ('none','pending','approved','rejected')),
+  pending_sets            jsonb not null default '[]'::jsonb,
+  pending_score_a         int,
+  pending_score_b         int,
+  pending_winner_team_id  uuid references teams(id) on delete set null,
+  submitted_by_team_id    uuid references teams(id) on delete set null,
+  submitted_at            timestamptz,
+  approved_by_team_id     uuid references teams(id) on delete set null,
+  approved_at             timestamptz,
+  rejection_reason        text,
+  rejected_by_team_id     uuid references teams(id) on delete set null,
+  rejected_at             timestamptz,
   updated_at    timestamptz not null default now()
 );
 create index if not exists matches_tournament_idx on matches(tournament_id, match_no);
@@ -169,7 +195,7 @@ create table if not exists match_events (
   tournament_id uuid not null references tournaments(id) on delete cascade,
   division_id   uuid not null references divisions(id) on delete restrict,
   match_id      uuid not null references matches(id) on delete cascade,
-  action        text not null,          -- 'report' / 'admin_edit' / 'reset' / 'status'
+  action        text not null,          -- 'report_pending' / 'approve' / 'admin_edit' / 'reset' / 'status'
   score_a       int,
   score_b       int,
   actor         text not null default 'team',
@@ -205,6 +231,15 @@ end $$;
 --   書き込みは Next.js の API Route が service_role キーで行うため、
 --   anon 向けの insert/update/delete ポリシーは意図的に作らない。
 -- ------------------------------------------------------------
+create table if not exists team_result_credentials (
+  team_id uuid primary key references teams(id) on delete cascade,
+  pin_hash text not null,
+  updated_at timestamptz not null default now()
+);
+alter table team_result_credentials enable row level security;
+revoke all on table team_result_credentials from anon, authenticated;
+grant all privileges on table team_result_credentials to service_role;
+
 alter table tournaments  enable row level security;
 alter table divisions    enable row level security;
 alter table leagues      enable row level security;

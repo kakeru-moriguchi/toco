@@ -117,6 +117,12 @@ export async function POST(req: NextRequest) {
         updated_at: new Date().toISOString(),
       }).eq("id", id).eq("tournament_id", tournament.id);
       if (error) throw new Error(error.message);
+    } else if (action === "set_public") {
+      const { error } = await db.from("divisions").update({
+        is_public: body.is_public === true,
+        updated_at: new Date().toISOString(),
+      }).eq("id", id).eq("tournament_id", tournament.id);
+      if (error) throw new Error(error.message);
     } else if (action === "deactivate") {
       const active = (await getDivisions(tournament.id, false)).filter((item) => item.id !== id);
       if (active.length === 0) return fail("最後の有効な部門は無効化できません。");

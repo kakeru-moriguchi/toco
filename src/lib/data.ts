@@ -4,7 +4,8 @@ import { planBracketsFromLeagues, resolveBracketProgress, type PlannedTier } fro
 import { normalizeTiers } from "./tiers";
 import { normalizeSets, validateSets } from "./score";
 import type { Division, League, Match, SetScore, Team, Tournament, TournamentState } from "./types";
-import { divisionCourts, divisionTiers } from "./divisionFormat";
+import { divisionCourts, divisionFinalsMinutes, divisionFinalsStartTime, divisionQualifyingMinutes, divisionSetsToWin, divisionStartTime, divisionTiers, tournamentForDivision } from "./divisionFormat";
+import { verifyTeamPin } from "./teamResultAuth";
 
 /**
  * サーバー側のデータ操作。
@@ -18,19 +19,41 @@ function toTournament(row: Record<string, unknown>): Tournament {
     ...(row as unknown as Tournament),
     sets_to_win: Math.max(1, Math.trunc(Number(row.sets_to_win)) || 1),
     bracket_tiers: normalizeTiers(row.bracket_tiers),
+    schedule_blocks: Array.isArray(row.schedule_blocks) ? row.schedule_blocks.filter((block): block is Tournament["schedule_blocks"][number] => {
+      if (!block || typeof block !== "object") return false;
+      const item = block as Record<string, unknown>;
+      return typeof item.start_time === "string" && typeof item.end_time === "string";
+    }).map((block) => ({ label: String(block.label ?? "休止枠"), start_time: String(block.start_time), end_time: String(block.end_time) })) : [],
   };
 }
 
 /** DBの試合行を、画面がそのまま使える形に整える */
 function toMatch(row: Record<string, unknown>): Match {
-  return { ...(row as unknown as Match), sets: normalizeSets(row.sets) };
+  return {
+    ...(row as unknown as Match),
+    sets: normalizeSets(row.sets),
+    approval_status:
+      row.approval_status === "pending" || row.approval_status === "approved" || row.approval_status === "rejected"
+        ? row.approval_status
+        : "none",
+    pending_sets: normalizeSets(row.pending_sets),
+  };
 }
 
 function toDivision(row: Record<string, unknown>): Division {
   const rawOrder = String(row.qualifying_match_order ?? "balanced");
   return {
     ...(row as unknown as Division),
+    is_public: row.is_public !== false,
     league_count: row.league_count == null ? null : Math.max(1, Math.trunc(Number(row.league_count))),
+    teams_per_league: row.teams_per_league == null ? null : Math.max(2, Math.trunc(Number(row.teams_per_league))),
+    point_target: row.point_target == null ? null : Math.max(1, Math.trunc(Number(row.point_target))),
+    sets_to_win: row.sets_to_win == null ? null : Math.max(1, Math.trunc(Number(row.sets_to_win))),
+    start_time: typeof row.start_time === "string" && row.start_time ? row.start_time : null,
+    finals_start_time: typeof row.finals_start_time === "string" && row.finals_start_time ? row.finals_start_time : null,
+    qualifying_minutes_per_match: row.qualifying_minutes_per_match == null ? null : Math.max(5, Math.trunc(Number(row.qualifying_minutes_per_match))),
+    finals_minutes_per_match: row.finals_minutes_per_match == null ? null : Math.max(5, Math.trunc(Number(row.finals_minutes_per_match))),
+    tiebreakers: Array.isArray(row.tiebreakers) ? row.tiebreakers as Division["tiebreakers"] : null,
     courts: Array.isArray(row.courts) ? row.courts.map(String).filter(Boolean) : null,
     bracket_tiers: row.bracket_tiers == null ? null : normalizeTiers(row.bracket_tiers),
     finals_enabled: row.finals_enabled !== false,
@@ -85,7 +108,7 @@ export async function createDefaultDivision(tournamentId: string): Promise<Divis
 export async function getDivision(tournamentId: string, divisionId?: string | null): Promise<Division> {
   const divisions = await getDivisions(tournamentId);
   const division = divisionId
-    ? divisions.find((item) => item.id === divisionId)
+    ? divisions.find((item) => item.id === divisionId && item.is_active) ?? divisions.find((item) => item.is_active)
     : divisions.find((item) => item.is_active);
   if (!division) throw new Error("対象の部門が見つかりませんでした。");
   return division;
@@ -127,12 +150,14 @@ async function getTournamentWithDivisions(
 
 export async function getState(
   tournamentId?: string | null,
-  divisionId?: string | null
+  divisionId?: string | null,
+  includeNonPublic = true
 ): Promise<TournamentState> {
   const db = supabaseAdmin();
-  const { tournament, divisions } = await getTournamentWithDivisions(tournamentId);
+  const { tournament, divisions: allDivisions } = await getTournamentWithDivisions(tournamentId);
+  const divisions = includeNonPublic ? allDivisions : allDivisions.filter((item) => item.is_active && item.is_public);
   const division = divisionId
-    ? divisions.find((item) => item.id === divisionId)
+    ? divisions.find((item) => item.id === divisionId && item.is_active) ?? divisions.find((item) => item.is_active)
     : divisions.find((item) => item.is_active);
   if (!division) throw new Error("対象の部門が見つかりませんでした。");
   const [leagues, teams, matches] = await Promise.all([
@@ -144,7 +169,7 @@ export async function getState(
   if (teams.error) throw new Error(teams.error.message);
   if (matches.error) throw new Error(matches.error.message);
   return {
-    tournament,
+    tournament: tournamentForDivision(tournament, division),
     division,
     divisions,
     leagues: (leagues.data ?? []) as League[],
@@ -290,8 +315,8 @@ export async function regenerateLeagueMatches(tournamentId: string, divisionId: 
   if (error) throw new Error(error.message);
 
   await autoAssignSchedule(tournamentId, divisionId, "qualifying", {
-    startTime: tournament.start_time,
-    minutesPerMatch: tournament.minutes_per_match,
+    startTime: divisionStartTime(division, tournament),
+    minutesPerMatch: divisionQualifyingMinutes(division, tournament),
     courts: divisionCourts(division, tournament),
   });
 
@@ -357,7 +382,11 @@ export async function autoAssignSchedule(
       reserved: tournamentMatches
         .filter((match) => !matches.some((target) => target.id === match.id))
         .filter((match) => match.court && match.scheduled_at)
-        .map((match) => ({ court: match.court, scheduledAt: match.scheduled_at })),
+        .map((match) => ({ court: match.court, scheduledAt: match.scheduled_at, durationMinutes: match.duration_minutes, teamAId: match.team_a_id, teamBId: match.team_b_id }))
+        .concat(tournament.schedule_blocks.flatMap((block) => {
+          const durationMinutes = Math.max(1, (Number(block.end_time.split(":")[0]) * 60 + Number(block.end_time.split(":")[1])) - (Number(block.start_time.split(":")[0]) * 60 + Number(block.start_time.split(":")[1])));
+          return options.courts.map((court) => ({ court, scheduledAt: block.start_time, durationMinutes, teamAId: null, teamBId: null }));
+        })),
     }
   );
 
@@ -368,6 +397,7 @@ export async function autoAssignSchedule(
         match_no: a.matchNo + offset,
         court: a.court,
         scheduled_at: a.scheduledAt,
+        duration_minutes: a.durationMinutes,
         updated_at: new Date().toISOString(),
       })
       .eq("id", a.id)
@@ -438,8 +468,8 @@ export async function generateBracket(
   }
 
   await autoAssignSchedule(tournamentId, divisionId, "finals", {
-    startTime: options?.startTime || tournament.start_time,
-    minutesPerMatch: tournament.minutes_per_match,
+    startTime: options?.startTime || divisionFinalsStartTime(division, tournament),
+    minutesPerMatch: divisionFinalsMinutes(division, tournament),
     courts: divisionCourts(division, tournament),
   });
 
@@ -614,6 +644,186 @@ export type ResultInput = {
 };
 
 /**
+ * 参加者が入力した結果を承認待ちとして保存する。
+ * 勝者は入力されたスコアから自動判定し、正式結果・順位・決勝進行にはまだ反映しない。
+ */
+export async function submitResultForApproval(input: Pick<ResultInput, "matchId" | "sets"> & { teamId: string; pin: string }): Promise<Match> {
+  const db = supabaseAdmin();
+  const { data: found, error: findError } = await db
+    .from("matches")
+    .select("*")
+    .eq("id", input.matchId)
+    .single();
+  if (findError || !found) throw new Error("試合が見つかりませんでした。");
+  const match = toMatch(found as Record<string, unknown>);
+  if (match.status === "done") {
+    throw new Error("この試合は承認済みです。修正は主催者に依頼してください。");
+  }
+  if (!match.team_a_id || !match.team_b_id) {
+    throw new Error("対戦チームがまだ決まっていません。");
+  }
+
+  const tournament = await getTournament(match.tournament_id);
+  const division = await getDivision(match.tournament_id, match.division_id);
+  const sets = normalizeSets(input.sets);
+  const check = validateSets(sets, divisionSetsToWin(division, tournament));
+  if (!check.ok || !check.winner) throw new Error(check.error ?? "スコアを確認してください。");
+
+  const winner = check.winner === "a" ? match.team_a_id : match.team_b_id;
+  if (input.teamId !== winner) throw new Error("勝利チームだけが結果を送信できます。");
+  await verifyTeamPin(winner, input.pin);
+  const now = new Date().toISOString();
+  const { data: updated, error } = await db
+    .from("matches")
+    .update({
+      approval_status: "pending",
+      pending_sets: sets,
+      pending_score_a: check.totalPoints.a,
+      pending_score_b: check.totalPoints.b,
+      pending_winner_team_id: winner,
+      submitted_by_team_id: winner,
+      submitted_at: now,
+      approved_by_team_id: null,
+      approved_at: null,
+      rejection_reason: null,
+      rejected_by_team_id: null,
+      rejected_at: null,
+      status: "pending",
+      updated_at: now,
+    })
+    .eq("id", match.id)
+    .eq("tournament_id", match.tournament_id)
+    .eq("division_id", match.division_id)
+    .neq("approval_status", "approved")
+    .eq("updated_at", found.updated_at)
+    .select("*")
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!updated) throw new Error("すでに別の操作で結果が確定されています。画面を再読み込みしてください。");
+
+  await logMatchEvent({
+    tournamentId: match.tournament_id,
+    divisionId: match.division_id,
+    matchId: match.id,
+    action: "report_pending",
+    scoreA: check.totalPoints.a,
+    scoreB: check.totalPoints.b,
+    actor: `team:${winner}`,
+    payload: { sets, sets_won: check.setsWon, winner_team_id: winner },
+  });
+
+  return toMatch(updated as Record<string, unknown>);
+}
+
+/** 敗者側の承認を受けて、仮結果を正式結果へ反映する。 */
+export async function approvePendingResult(matchId: string, teamId: string, pin: string): Promise<Match> {
+  const db = supabaseAdmin();
+  const { data: found, error: findError } = await db.from("matches").select("*").eq("id", matchId).single();
+  if (findError || !found) throw new Error("試合が見つかりませんでした。");
+  const match = toMatch(found as Record<string, unknown>);
+  if (match.approval_status !== "pending") throw new Error("承認待ちの結果がありません。");
+  if (!match.team_a_id || !match.team_b_id || !match.pending_winner_team_id) {
+    throw new Error("承認する結果のチーム情報が不足しています。");
+  }
+  if (![match.team_a_id, match.team_b_id].includes(match.pending_winner_team_id)) {
+    throw new Error("承認する勝者情報が正しくありません。");
+  }
+
+  const tournament = await getTournament(match.tournament_id);
+  const division = await getDivision(match.tournament_id, match.division_id);
+  const sets = normalizeSets(match.pending_sets);
+  const check = validateSets(sets, divisionSetsToWin(division, tournament));
+  if (!check.ok || !check.winner) throw new Error(check.error ?? "承認するスコアが正しくありません。");
+  const winner = check.winner === "a" ? match.team_a_id : match.team_b_id;
+  if (winner !== match.pending_winner_team_id) throw new Error("承認する勝者とスコアが一致しません。");
+  const loser = winner === match.team_a_id ? match.team_b_id : match.team_a_id;
+  if (teamId !== loser) throw new Error("敗戦チームだけが承認できます。");
+  await verifyTeamPin(loser, pin);
+  const now = new Date().toISOString();
+
+  const { data: updated, error } = await db
+    .from("matches")
+    .update({
+      sets,
+      score_a: check.totalPoints.a,
+      score_b: check.totalPoints.b,
+      winner_team_id: winner,
+      status: "done",
+      reported_at: now,
+      reported_by: "team-approved",
+      approval_status: "approved",
+      approved_by_team_id: loser,
+      approved_at: now,
+      pending_sets: [],
+      pending_score_a: null,
+      pending_score_b: null,
+      pending_winner_team_id: null,
+      submitted_by_team_id: null,
+      submitted_at: null,
+      rejection_reason: null,
+      rejected_by_team_id: null,
+      rejected_at: null,
+      updated_at: now,
+    })
+    .eq("id", match.id)
+    .eq("approval_status", "pending")
+    .eq("updated_at", found.updated_at)
+    .select("*")
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!updated) throw new Error("すでに別の操作で承認または差し戻しされています。画面を再読み込みしてください。");
+
+  await logMatchEvent({
+    tournamentId: match.tournament_id,
+    divisionId: match.division_id,
+    matchId: match.id,
+    action: "approve",
+    scoreA: check.totalPoints.a,
+    scoreB: check.totalPoints.b,
+    actor: `team:${loser}`,
+    payload: { sets, winner_team_id: winner, approved_by_team_id: loser },
+  });
+
+  if (match.stage === "bracket") await recomputeBracket(match.tournament_id, match.division_id);
+  return toMatch(updated as Record<string, unknown>);
+}
+
+/** 敗者側が内容を差し戻し、勝者側の再送信を待つ。 */
+export async function rejectPendingResult(matchId: string, teamId: string, pin: string, reason: string): Promise<Match> {
+  const db = supabaseAdmin();
+  const { data: found, error: findError } = await db.from("matches").select("*").eq("id", matchId).single();
+  if (findError || !found) throw new Error("試合が見つかりませんでした。");
+  const match = toMatch(found as Record<string, unknown>);
+  if (match.approval_status !== "pending" || !match.team_a_id || !match.team_b_id || !match.pending_winner_team_id) {
+    throw new Error("差し戻せる承認待ち結果がありません。");
+  }
+  const loser = match.pending_winner_team_id === match.team_a_id ? match.team_b_id : match.team_a_id;
+  if (teamId !== loser) throw new Error("敗戦チームだけが差し戻しできます。");
+  await verifyTeamPin(loser, pin);
+  const normalizedReason = reason.trim().slice(0, 300);
+  if (!normalizedReason) throw new Error("修正してほしい内容を入力してください。");
+  const now = new Date().toISOString();
+  const { data: updated, error } = await db.from("matches").update({
+    approval_status: "rejected",
+    rejection_reason: normalizedReason,
+    rejected_by_team_id: loser,
+    rejected_at: now,
+    updated_at: now,
+  }).eq("id", match.id).eq("approval_status", "pending").eq("updated_at", found.updated_at).select("*").maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!updated) throw new Error("すでに別の操作で更新されています。画面を再読み込みしてください。");
+  await logMatchEvent({
+    tournamentId: match.tournament_id,
+    divisionId: match.division_id,
+    matchId: match.id,
+    action: "reject",
+    actor: `team:${loser}`,
+    payload: { reason: normalizedReason },
+  });
+  return toMatch(updated as Record<string, unknown>);
+}
+
+/**
  * 試合結果を登録・修正する（参加者・主催者共通の入口）。
  * 勝敗は取ったセット数で決まり、順位表用の得点・失点には全セットの合計点を入れる。
  */
@@ -633,13 +843,14 @@ export async function saveResult(input: ResultInput): Promise<Match> {
     throw new Error("選択中の部門に属さない試合です。");
   }
   const tournament = await getTournament(match.tournament_id);
+  const division = await getDivision(match.tournament_id, match.division_id);
 
   if (!match.team_a_id || !match.team_b_id) {
     throw new Error("対戦チームがまだ決まっていません。");
   }
 
   const sets = normalizeSets(input.sets);
-  const check = validateSets(sets, tournament.sets_to_win);
+  const check = validateSets(sets, divisionSetsToWin(division, tournament));
   if (!check.ok || !check.winner) throw new Error(check.error ?? "スコアを確認してください。");
 
   const winner = check.winner === "a" ? match.team_a_id : match.team_b_id;
@@ -654,6 +865,18 @@ export async function saveResult(input: ResultInput): Promise<Match> {
       status: "done",
       reported_at: new Date().toISOString(),
       reported_by: input.actor,
+      approval_status: "approved",
+      pending_sets: [],
+      pending_score_a: null,
+      pending_score_b: null,
+      pending_winner_team_id: null,
+      submitted_by_team_id: null,
+      submitted_at: null,
+      approved_by_team_id: null,
+      approved_at: new Date().toISOString(),
+      rejection_reason: null,
+      rejected_by_team_id: null,
+      rejected_at: null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", match.id)
@@ -682,7 +905,7 @@ export async function saveResult(input: ResultInput): Promise<Match> {
     await recomputeBracket(match.tournament_id, match.division_id);
   }
 
-  return updated as Match;
+  return toMatch(updated as Record<string, unknown>);
 }
 
 /** 結果を取り消して「待機中」に戻す（主催者のみ） */
@@ -708,6 +931,18 @@ export async function clearResult(matchId: string, tournamentId?: string, divisi
       status: "pending",
       reported_at: null,
       reported_by: null,
+      approval_status: "none",
+      pending_sets: [],
+      pending_score_a: null,
+      pending_score_b: null,
+      pending_winner_team_id: null,
+      submitted_by_team_id: null,
+      submitted_at: null,
+      approved_by_team_id: null,
+      approved_at: null,
+      rejection_reason: null,
+      rejected_by_team_id: null,
+      rejected_at: null,
       updated_at: new Date().toISOString(),
     })
     .eq("id", matchId)

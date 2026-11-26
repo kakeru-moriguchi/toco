@@ -87,7 +87,7 @@
 | `divisions` | 大会内の部門と部門別大会形式 | `tournament_id` `name` `league_count` `courts` `bracket_tiers` `finals_enabled` `qualifying_match_order` `game_labels` `sort_order` `is_active` |
 | `leagues` | 予選リーグ＋総当たり形式の級のリーグ | `division_id` `name` `sort_order` **`tier_key`**（予選は null） |
 | `teams` | チーム | `division_id` `name` `members` `league_id` `sort_order` |
-| `matches` | 試合（リーグ戦・トーナメント共通） | `division_id` `stage` `league_id` **`tier_key`** `round` `bracket_index` `is_third_place` `match_no` `court` `scheduled_at` `status` `team_a_id` `team_b_id` `team_a_label` `team_b_label` **`sets`** `score_a` `score_b` `winner_team_id` `next_match_id` `next_slot` `loser_next_match_id` `loser_next_slot` |
+| `matches` | 試合（リーグ戦・トーナメント共通） | `division_id` `stage` `league_id` **`tier_key`** `round` `bracket_index` `is_third_place` `match_no` `court` `scheduled_at` `status` `team_a_id` `team_b_id` `team_a_label` `team_b_label` **`sets`** `score_a` `score_b` `winner_team_id` `approval_status` `pending_sets` `pending_winner_team_id` `submitted_by_team_id` `approved_by_team_id` `next_match_id` `next_slot` `loser_next_match_id` `loser_next_slot` |
 | `match_events` | 結果の履歴（誰がいつ何点で登録したか） | `action` `score_a` `score_b` `actor` `created_at` |
 
 ポイント:
@@ -179,7 +179,7 @@
 | `/standings` | リーグ表・順位 | 試合数/勝/負/得セット/失セット/セット差/得点/失点/得失点差/順位。進出圏に色付き |
 | `/bracket` | 決勝ラウンド | **級の切り替えタブ**。トーナメント形式は表を、総当たり形式は順位表と試合一覧を表示 |
 | `/report` | 結果入力・試合選択 | チーム名で検索して自分の試合を探す |
-| `/report/[試合ID]` | 結果入力 | **セット数と3ゲーム分の点数**を入力し、一致を確認 → **確認画面** → 送信 |
+| `/report/[試合ID]` | 結果入力・承認 | 勝者側が点数を送信 → 敗者側が同じ画面で承認 → 正式結果へ反映 |
 
 ### 主催者向け（パスワード保護）
 
@@ -353,6 +353,10 @@
 > | `migration_004_multi_tournaments.sql` | 複数大会と安全なアーカイブに対応 |
 > | `migration_005_divisions.sql` | 大会内の複数部門とデータ分離に対応 |
 > | `migration_006_division_formats.sql` | 部門別リーグ数・コート・決勝方式とPDF大会形式に対応 |
+> | `migration_007_service_role_privileges.sql` | 管理API用のDB権限を設定 |
+> | `migration_008_result_approval.sql` | 勝者入力・敗者承認の結果確定フローに対応 |
+> | `migration_009_division_settings_and_schedule.sql` | 部門別設定・公開状態、予選/決勝の時間幅、大会共通の休憩枠に対応 |
+> | `migration_010_result_approval_security.sql` | 非公開のチームPINハッシュと敗者による差し戻しに対応 |
    >
    > （これから初めて `schema.sql` を実行する場合は、マイグレーションは不要です）
 
@@ -579,12 +583,12 @@ openssl rand -base64 32
 
 ## 14. 今後の拡張ポイント
 
-MVPでは実装していませんが、**構造としては受け入れられるように作ってあります**。
+追加の本人確認や運営補助として、次の拡張が可能です。
 
 | 機能 | 実装の入口 |
 | --- | --- |
-| 試合ごとのPINコード | `matches` に `pin` 列を追加し、`src/app/api/matches/[id]/report/route.ts` で照合する |
-| 相手チームによる結果承認 | `matches` に `approval_status` を追加。`saveResult()` を「仮登録」と「確定」に分け、確定時だけ順位に反映する |
+| チームPINの配布 | 管理画面のチームごとに6〜12桁の数字を設定し、そのチーム代表者だけへ伝える。再表示はできず、再設定で更新する |
+| 結果承認時の本人確認 | 勝者がPIN付きで仮送信し、敗者が自チームのPINで承認または理由付き差し戻しを行う。確定後は管理者のみ訂正可能。管理者訂正は即時確定し、履歴へ記録される |
 | 結果の変更履歴の表示 | すでに `match_events` に全履歴が入っているので、管理画面に一覧を出すだけ |
 | 複数大会の同時運用 | `tournaments` は複数行を持てる構造です。`getState()` の「1件目を取る」処理をURLパラメータ指定に変える |
 | 独自の同率ルール | `src/lib/standings.ts` の `compareBy()` に条件を追加し、`Tiebreaker` 型に名前を足す |

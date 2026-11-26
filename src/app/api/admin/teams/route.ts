@@ -4,6 +4,7 @@ import { defaultLeagueName, ensureLeagues, getDivision, getState, getTournament 
 import { divisionLeagueCount } from "@/lib/divisionFormat";
 import { divisionIdFromRequest, errorMessage, fail, ok, requireAdmin, tournamentIdFromRequest } from "@/lib/api";
 import type { Team } from "@/lib/types";
+import { hashTeamPin, validateTeamPin } from "@/lib/teamResultAuth";
 
 export const dynamic = "force-dynamic";
 
@@ -138,6 +139,19 @@ export async function POST(req: NextRequest) {
         .eq("id", id)
         .eq("tournament_id", tournament.id)
         .eq("division_id", division.id);
+      if (error) throw new Error(error.message);
+    } else if (action === "set_result_pin") {
+      const id = String(body.id ?? "");
+      const pin = validateTeamPin(String(body.pin ?? ""));
+      const { data: team, error: teamError } = await db.from("teams").select("id")
+        .eq("id", id).eq("tournament_id", tournament.id).eq("division_id", division.id).maybeSingle();
+      if (teamError) throw new Error(teamError.message);
+      if (!team) return fail("チームが見つかりません。画面を再読み込みしてください。");
+      const { error } = await db.from("team_result_credentials").upsert({
+        team_id: id,
+        pin_hash: hashTeamPin(pin),
+        updated_at: new Date().toISOString(),
+      }, { onConflict: "team_id" });
       if (error) throw new Error(error.message);
     } else if (action === "move_division") {
       const id = String(body.id ?? "");

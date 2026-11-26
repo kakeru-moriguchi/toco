@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useTournamentState } from "@/lib/useTournamentState";
 import { formatDate } from "@/lib/view";
+import { ParticipantDivisionSelector } from "@/components/ParticipantDivisionSelector";
 
 type MenuItem = {
   href: string;
@@ -108,6 +109,13 @@ export default function HomePage() {
 
       {/* ヘッダーに重ねず、薄緑の面から始める */}
       <main className="mx-auto max-w-3xl space-y-4 px-4 pt-5">
+        {state && (
+          <ParticipantDivisionSelector
+            tournamentId={state.tournament.id}
+            divisions={state.divisions}
+            divisionId={state.division.id}
+          />
+        )}
         {/* 大きなメニューボタン */}
         <nav className="grid gap-3">
           {MENU.map((item) => (

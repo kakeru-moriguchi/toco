@@ -36,6 +36,15 @@ function match(id: string, leagueId: string, a: string, b: string, scoreA: numbe
     loser_next_slot: null,
     reported_at: null,
     reported_by: "admin",
+    approval_status: "approved",
+    pending_sets: [],
+    pending_score_a: null,
+    pending_score_b: null,
+    pending_winner_team_id: null,
+    submitted_by_team_id: null,
+    submitted_at: null,
+    approved_by_team_id: null,
+    approved_at: null,
   };
 }
 
@@ -46,6 +55,25 @@ test("standings rank by wins then point difference", () => {
   assert.deepEqual(rows.map((row) => row.teamId), ["A", "B", "C"]);
   assert.deepEqual(rows.map((row) => row.rank), [1, 2, 3]);
   assert.equal(rows[1].played, 2);
+});
+
+test("results waiting for opponent approval do not affect standings", () => {
+  const teams = [team("A", "l1"), team("B", "l1")];
+  const pending = match("m1", "l1", "A", "B", 11, 3);
+  pending.status = "pending";
+  pending.sets = [];
+  pending.score_a = null;
+  pending.score_b = null;
+  pending.winner_team_id = null;
+  pending.approval_status = "pending";
+  pending.pending_sets = [{ a: 11, b: 3 }];
+  pending.pending_score_a = 11;
+  pending.pending_score_b = 3;
+  pending.pending_winner_team_id = "A";
+
+  const rows = computeStandings(teams, [pending], ["wins", "diff"]);
+  assert.deepEqual(rows.map((row) => row.played), [0, 0]);
+  assert.deepEqual(rows.map((row) => row.wins), [0, 0]);
 });
 
 test("league aggregation does not mix matches from another league", () => {
