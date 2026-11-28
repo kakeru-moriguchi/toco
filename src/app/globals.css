@@ -4,6 +4,8 @@
 @layer base {
   html {
     -webkit-text-size-adjust: 100%;
+    /* 読み込み前後の縦スクロールバーでメニューの横幅が変わるのを防ぐ。 */
+    scrollbar-gutter: stable;
   }
   body {
     @apply bg-[#F0F2F3] text-ink-900 antialiased;

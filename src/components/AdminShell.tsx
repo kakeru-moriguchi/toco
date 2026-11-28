@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { selectTournament, selectedTournamentId } from "@/lib/tournamentSelection";
 import { ADMIN_DIVISION_CHANGE_EVENT, selectDivision, selectedDivisionId } from "@/lib/divisionSelection";
 import type { Division, TournamentSummary } from "@/lib/types";
@@ -17,6 +17,8 @@ const NAV = [
   { href: "/admin/schedule", label: "進行表" },
   { href: "/admin/bracket", label: "決勝ラウンド" },
 ];
+
+const NAV_SCROLL_KEY = 'toco_admin_navigation_scroll';
 
 export function AdminShell({
   title,
@@ -33,6 +35,29 @@ export function AdminShell({
   const [activeTournamentId, setActiveTournamentId] = useState("");
   const [divisions, setDivisions] = useState<Division[]>([]);
   const [activeDivisionId, setActiveDivisionId] = useState("");
+  const navigationRef = useRef<HTMLElement>(null);
+
+  // AdminShellはページごとに再作成されるため、描画前に同じ横位置へ戻す。
+  useLayoutEffect(() => {
+    try {
+      const saved = window.sessionStorage.getItem(NAV_SCROLL_KEY);
+      const left = saved === null ? 0 : Number(saved);
+      if (navigationRef.current && Number.isFinite(left) && left >= 0) {
+        navigationRef.current.scrollLeft = left;
+      }
+    } catch {
+      // ストレージが使えない場合もメニュー自体は操作できる。
+    }
+  }, []);
+
+  const rememberNavigationScroll = () => {
+    if (!navigationRef.current) return;
+    try {
+      window.sessionStorage.setItem(NAV_SCROLL_KEY,String(navigationRef.current.scrollLeft));
+    } catch {
+      // 表示位置の保存失敗でページ移動を妨げない。
+    }
+  };
 
   const loadDivisions = useCallback(async (tournamentId: string) => {
     const res = await fetch("/api/admin/divisions", {
@@ -111,7 +136,7 @@ export function AdminShell({
             </button>
           </div>
         </div>
-        <nav className="scroll-x border-t border-white/10">
+        <nav ref={navigationRef} aria-label="主催者メニュー" className="scroll-x border-t border-white/10" onScroll={rememberNavigationScroll}>
           <div className="mx-auto flex max-w-5xl gap-1 px-3 py-2">
             {NAV.map((item) => {
               const active = pathname === item.href;
@@ -119,6 +144,8 @@ export function AdminShell({
                 <Link
                   key={item.href}
                   href={item.href}
+                  onClick={rememberNavigationScroll}
+                  aria-current={active ? 'page' : undefined}
                   className={`flex min-h-11 shrink-0 items-center rounded-lg px-3 text-sm font-bold ${
                     active ? "bg-white text-court-900" : "text-court-100 hover:bg-white/10"
                   }`}

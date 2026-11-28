@@ -66,7 +66,7 @@ export function DivisionFormatEditor({
 
   return (
     <div className="mt-3 min-w-0 overflow-hidden border-t border-court-100 pt-3">
-      <button className="btn-ghost btn-sm w-full" onClick={() => setOpen((value) => !value)}>
+      <button className="btn-ghost btn-sm min-h-12 w-full ring-inset focus-visible:ring-offset-0" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
         {open ? "大会形式の設定を閉じる" : "大会形式を設定"}
       </button>
 
